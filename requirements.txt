@@ -2,5 +2,3 @@ fastapi>=0.100.0
 uvicorn>=0.23.0
 aiofiles>=23.0.0
 httpx>=0.24.0
-（内容由AI生成，仅供参考）
-（内容由AI生成，仅供参考）
