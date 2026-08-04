@@ -12,7 +12,7 @@ services:
     volumes:
       - ai-chat-data:/data
     restart: unless-stopped
-    mem_limit: 128m
+    mem_limit: 256m
     cpus: 0.5
     logging:
       driver: "json-file"

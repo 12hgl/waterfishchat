@@ -30,7 +30,7 @@ function md(text) {
   h = h.replace(/^## (.+)$/gm, '<h3>$1</h3>');
   h = h.replace(/^# (.+)$/gm, '<h2>$1</h2>');
   h = h.replace(/^- (.+)$/gm, '<li>$1</li>');
-  h = h.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+  h = h.replace(/((?:<li>.*<\/li>\s*)+)/g, '<ul>$1</ul>');
   h = h.replace(/\n/g, '<br>');
   return h;
 }

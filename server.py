@@ -1,4 +1,5 @@
-import hashlib, secrets, time, sqlite3, os
+import hashlib, secrets, time, sqlite3, os, binascii
+from contextlib import contextmanager
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -9,65 +10,77 @@ DATA_DIR = Path("/data")
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "waterfish.db"
 
-def get_db():
+@contextmanager
+def use_db():
     db = sqlite3.connect(str(DB_PATH))
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA foreign_keys=ON")
-    return db
+    try:
+        yield db
+        db.commit()
+    finally:
+        db.close()
 
 def init_db():
-    db = get_db()
-    db.executescript("""
-        CREATE TABLE IF NOT EXISTS config (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        );
-        CREATE TABLE IF NOT EXISTS providers (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            base_url TEXT NOT NULL,
-            api_key TEXT NOT NULL DEFAULT '',
-            model TEXT NOT NULL DEFAULT '',
-            created_at REAL DEFAULT (strftime('%s','now'))
-        );
-        CREATE TABLE IF NOT EXISTS conversations (
-            id TEXT PRIMARY KEY,
-            provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
-            title TEXT DEFAULT '新对话',
-            created_at REAL DEFAULT (strftime('%s','now'))
-        );
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-            role TEXT NOT NULL,
-            content TEXT NOT NULL,
-            created_at REAL DEFAULT (strftime('%s','now'))
-        );
-        CREATE INDEX IF NOT EXISTS idx_conv_provider ON conversations(provider_id);
-        CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id);
-    """)
-    db.commit()
-    db.close()
+    with use_db() as db:
+        db.executescript("""
+            CREATE TABLE IF NOT EXISTS config (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
+            CREATE TABLE IF NOT EXISTS providers (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                base_url TEXT NOT NULL,
+                api_key TEXT NOT NULL DEFAULT '',
+                model TEXT NOT NULL DEFAULT '',
+                created_at REAL DEFAULT (strftime('%s','now'))
+            );
+            CREATE TABLE IF NOT EXISTS conversations (
+                id TEXT PRIMARY KEY,
+                provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+                title TEXT DEFAULT '新对话',
+                created_at REAL DEFAULT (strftime('%s','now'))
+            );
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at REAL DEFAULT (strftime('%s','now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_conv_provider ON conversations(provider_id);
+            CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id);
+        """)
 
 init_db()
 
 def cfg_get(key):
-    db = get_db()
-    row = db.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
-    db.close()
-    return row["value"] if row else None
+    with use_db() as db:
+        row = db.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
+        return row["value"] if row else None
 
 def cfg_set(key, value):
-    db = get_db()
-    db.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", (key, value))
-    db.commit()
-    db.close()
+    with use_db() as db:
+        db.execute("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", (key, value))
 
-app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+PBKDF2_ITERATIONS = 600000
+SALT_BYTES = 16
 
-def hash_pw(pw): return hashlib.sha256(pw.encode()).hexdigest()
+def hash_pw(pw):
+    salt = os.urandom(SALT_BYTES)
+    dk = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, PBKDF2_ITERATIONS)
+    return binascii.hexlify(salt).decode() + ":" + binascii.hexlify(dk).decode()
+
+def verify_pw(pw, stored):
+    parts = stored.split(":", 1)
+    if len(parts) != 2:
+        return hashlib.sha256(pw.encode()).hexdigest() == stored
+    salt = binascii.unhexlify(parts[0])
+    dk = binascii.unhexlify(parts[1])
+    return hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, PBKDF2_ITERATIONS) == dk
+
 def make_token(): return secrets.token_hex(32)
 
 def check_session(request: Request):
@@ -78,6 +91,30 @@ def check_session(request: Request):
             return True
     return False
 
+def cleanup_sessions():
+    now = time.time()
+    with use_db() as db:
+        rows = db.execute("SELECT key FROM config WHERE key LIKE 'session_%'").fetchall()
+        for r in rows:
+            val = cfg_get(r["key"])
+            if val and now - float(val) > 86400:
+                db.execute("DELETE FROM config WHERE key=?", (r["key"],))
+
+LOGIN_ATTEMPTS = {}
+LOGIN_RATE_LIMIT = 10
+LOGIN_WINDOW = 60
+
+def check_login_ratelimit(ip):
+    now = time.time()
+    LOGIN_ATTEMPTS[ip] = [t for t in LOGIN_ATTEMPTS.get(ip, []) if now - t < LOGIN_WINDOW]
+    if len(LOGIN_ATTEMPTS[ip]) >= LOGIN_RATE_LIMIT:
+        return False
+    LOGIN_ATTEMPTS[ip].append(now)
+    return True
+
+app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
 @app.get("/api/status")
 def status():
     pw = cfg_get("admin_password_hash")
@@ -87,6 +124,9 @@ def status():
 async def init(request: Request):
     if cfg_get("admin_password_hash"):
         raise HTTPException(400, "Already initialized")
+    ip = request.client.host if request.client else "unknown"
+    if not check_login_ratelimit(ip):
+        raise HTTPException(429, "Too many attempts")
     body = await request.json()
     pw = body.get("password", "").strip()
     if len(pw) < 4:
@@ -96,6 +136,7 @@ async def init(request: Request):
     cfg_set("turnstile_secret", body.get("turnstile_secret", ""))
     token = make_token()
     cfg_set(f"session_{token}", str(time.time()))
+    cleanup_sessions()
     resp = JSONResponse({"ok": True})
     resp.set_cookie("session", token, httponly=True, max_age=86400, samesite="lax")
     return resp
@@ -105,8 +146,11 @@ async def login(request: Request):
     stored = cfg_get("admin_password_hash")
     if not stored:
         raise HTTPException(400, "Not initialized")
+    ip = request.client.host if request.client else "unknown"
+    if not check_login_ratelimit(ip):
+        raise HTTPException(429, "Too many attempts")
     body = await request.json()
-    if hash_pw(body.get("password", "")) != stored:
+    if not verify_pw(body.get("password", ""), stored):
         raise HTTPException(401, "Wrong password")
 
     secret = cfg_get("turnstile_secret")
@@ -123,6 +167,7 @@ async def login(request: Request):
 
     token = make_token()
     cfg_set(f"session_{token}", str(time.time()))
+    cleanup_sessions()
     resp = JSONResponse({"ok": True})
     resp.set_cookie("session", token, httponly=True, max_age=86400, samesite="lax")
     return resp
@@ -136,80 +181,72 @@ def logout():
 @app.get("/api/providers")
 def get_providers(request: Request):
     if not check_session(request): raise HTTPException(401)
-    db = get_db()
-    rows = db.execute("SELECT id, name, base_url, model, api_key FROM providers ORDER BY created_at").fetchall()
-    db.close()
-    return [{"id": r["id"], "name": r["name"], "base_url": r["base_url"], "model": r["model"], "has_key": bool(r["api_key"])} for r in rows]
+    with use_db() as db:
+        rows = db.execute("SELECT id, name, base_url, model, api_key FROM providers ORDER BY created_at").fetchall()
+        return [{"id": r["id"], "name": r["name"], "base_url": r["base_url"], "model": r["model"], "has_key": bool(r["api_key"])} for r in rows]
 
 @app.post("/api/providers")
 async def add_provider(request: Request):
     if not check_session(request): raise HTTPException(401)
     body = await request.json()
     pid = secrets.token_hex(6)
-    db = get_db()
-    db.execute("INSERT INTO providers (id, name, base_url, api_key, model) VALUES (?,?,?,?,?)",
-               (pid, body["name"], body["base_url"], body.get("api_key",""), body["model"]))
-    db.commit(); db.close()
+    with use_db() as db:
+        db.execute("INSERT INTO providers (id, name, base_url, api_key, model) VALUES (?,?,?,?,?)",
+                   (pid, body["name"], body["base_url"], body.get("api_key",""), body["model"]))
     return {"id": pid, "ok": True}
 
 @app.delete("/api/providers/{pid}")
 def delete_provider(pid: str, request: Request):
     if not check_session(request): raise HTTPException(401)
-    db = get_db()
-    db.execute("DELETE FROM providers WHERE id=?", (pid,))
-    db.commit(); db.close()
+    with use_db() as db:
+        db.execute("DELETE FROM providers WHERE id=?", (pid,))
     return {"ok": True}
 
 @app.put("/api/providers/{pid}")
 async def update_provider(pid: str, request: Request):
     if not check_session(request): raise HTTPException(401)
     body = await request.json()
-    db = get_db()
-    existing = db.execute("SELECT * FROM providers WHERE id=?", (pid,)).fetchone()
-    if not existing: db.close(); raise HTTPException(404)
-    db.execute("UPDATE providers SET name=?, base_url=?, model=? WHERE id=?",
-               (body.get("name", existing["name"]), body.get("base_url", existing["base_url"]),
-                body.get("model", existing["model"]), pid))
-    if body.get("api_key"):
-        db.execute("UPDATE providers SET api_key=? WHERE id=?", (body["api_key"], pid))
-    db.commit(); db.close()
+    with use_db() as db:
+        existing = db.execute("SELECT * FROM providers WHERE id=?", (pid,)).fetchone()
+        if not existing: raise HTTPException(404)
+        db.execute("UPDATE providers SET name=?, base_url=?, model=? WHERE id=?",
+                   (body.get("name", existing["name"]), body.get("base_url", existing["base_url"]),
+                    body.get("model", existing["model"]), pid))
+        if body.get("api_key"):
+            db.execute("UPDATE providers SET api_key=? WHERE id=?", (body["api_key"], pid))
     return {"ok": True}
 
 @app.get("/api/conversations")
 def get_conversations(request: Request, provider_id: str = ""):
     if not check_session(request): raise HTTPException(401)
-    db = get_db()
-    rows = db.execute("SELECT id, title, created_at FROM conversations WHERE provider_id=? ORDER BY created_at DESC",
-                      (provider_id,)).fetchall()
-    db.close()
-    return [{"id": r["id"], "title": r["title"], "created_at": r["created_at"]} for r in rows]
+    with use_db() as db:
+        rows = db.execute("SELECT id, title, created_at FROM conversations WHERE provider_id=? ORDER BY created_at DESC",
+                          (provider_id,)).fetchall()
+        return [{"id": r["id"], "title": r["title"], "created_at": r["created_at"]} for r in rows]
 
 @app.post("/api/conversations")
 async def create_conversation(request: Request):
     if not check_session(request): raise HTTPException(401)
     body = await request.json()
     cid = secrets.token_hex(8)
-    db = get_db()
-    db.execute("INSERT INTO conversations (id, provider_id, title) VALUES (?,?,?)",
-               (cid, body["provider_id"], body.get("title", "新对话")))
-    db.commit(); db.close()
+    with use_db() as db:
+        db.execute("INSERT INTO conversations (id, provider_id, title) VALUES (?,?,?)",
+                   (cid, body["provider_id"], body.get("title", "新对话")))
     return {"id": cid, "title": body.get("title", "新对话"), "ok": True}
 
 @app.delete("/api/conversations/{cid}")
 def delete_conversation(cid: str, request: Request):
     if not check_session(request): raise HTTPException(401)
-    db = get_db()
-    db.execute("DELETE FROM conversations WHERE id=?", (cid,))
-    db.commit(); db.close()
+    with use_db() as db:
+        db.execute("DELETE FROM conversations WHERE id=?", (cid,))
     return {"ok": True}
 
 @app.get("/api/conversations/{cid}/messages")
 def get_messages(cid: str, request: Request):
     if not check_session(request): raise HTTPException(401)
-    db = get_db()
-    rows = db.execute("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY created_at", (cid,)).fetchall()
-    db.close()
-    return [{"role": r["role"], "content": r["content"]} for r in rows]
+    with use_db() as db:
+        rows = db.execute("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY created_at", (cid,)).fetchall()
+        return [{"role": r["role"], "content": r["content"]} for r in rows]
 
 @app.post("/api/conversations/{cid}/chat")
 async def chat_in_conversation(cid: str, request: Request):
@@ -219,22 +256,20 @@ async def chat_in_conversation(cid: str, request: Request):
     if not content:
         raise HTTPException(400, "Empty message")
 
-    db = get_db()
-    conv = db.execute("SELECT * FROM conversations WHERE id=?", (cid,)).fetchone()
-    if not conv: db.close(); raise HTTPException(404, "Conversation not found")
+    with use_db() as db:
+        conv = db.execute("SELECT * FROM conversations WHERE id=?", (cid,)).fetchone()
+        if not conv: raise HTTPException(404, "Conversation not found")
 
-    provider = db.execute("SELECT * FROM providers WHERE id=?", (conv["provider_id"],)).fetchone()
-    if not provider: db.close(); raise HTTPException(400, "Provider not found")
+        provider = db.execute("SELECT * FROM providers WHERE id=?", (conv["provider_id"],)).fetchone()
+        if not provider: raise HTTPException(400, "Provider not found")
 
-    if conv["title"] == "新对话":
-        title = content[:40] + ("..." if len(content) > 40 else "")
-        db.execute("UPDATE conversations SET title=? WHERE id=?", (title, cid))
+        if conv["title"] == "新对话":
+            title = content[:40] + ("..." if len(content) > 40 else "")
+            db.execute("UPDATE conversations SET title=? WHERE id=?", (title, cid))
 
-    db.execute("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)", (cid, "user", content))
-    db.commit()
+        db.execute("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)", (cid, "user", content))
 
-    history = db.execute("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY created_at", (cid,)).fetchall()
-    db.close()
+        history = db.execute("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY created_at", (cid,)).fetchall()
 
     messages = [{"role": r["role"], "content": r["content"]} for r in history]
 
@@ -248,32 +283,26 @@ async def chat_in_conversation(cid: str, request: Request):
 
         if resp.status_code != 200:
             err_text = await resp.atext()
-            db = get_db()
-            db.execute("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)",
-                       (cid, "assistant", f"API 错误 {resp.status_code}: {err_text[:500]}"))
-            db.commit()
-            rows = db.execute("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY created_at", (cid,)).fetchall()
-            db.close()
-            return {"messages": [{"role": r["role"], "content": r["content"], "error": r["role"]=="assistant"} for r in rows]}
+            with use_db() as db:
+                db.execute("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)",
+                           (cid, "assistant", f"API 错误 {resp.status_code}: {err_text[:500]}"))
+                rows = db.execute("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY created_at", (cid,)).fetchall()
+                return {"messages": [{"role": r["role"], "content": r["content"], "error": r["role"]=="assistant"} for r in rows]}
 
         result = resp.json()
         reply = result.get("choices", [{}])[0].get("message", {}).get("content", "(空回复)")
 
-        db = get_db()
-        db.execute("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)", (cid, "assistant", reply))
-        db.commit()
-        rows = db.execute("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY created_at", (cid,)).fetchall()
-        db.close()
-        return {"messages": [{"role": r["role"], "content": r["content"]} for r in rows]}
+        with use_db() as db:
+            db.execute("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)", (cid, "assistant", reply))
+            rows = db.execute("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY created_at", (cid,)).fetchall()
+            return {"messages": [{"role": r["role"], "content": r["content"]} for r in rows]}
 
     except Exception as e:
-        db = get_db()
-        db.execute("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)",
-                   (cid, "assistant", f"请求失败: {str(e)}"))
-        db.commit()
-        rows = db.execute("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY created_at", (cid,)).fetchall()
-        db.close()
-        return {"messages": [{"role": r["role"], "content": r["content"], "error": r["role"]=="assistant"} for r in rows]}
+        with use_db() as db:
+            db.execute("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)",
+                       (cid, "assistant", f"请求失败: {str(e)}"))
+            rows = db.execute("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY created_at", (cid,)).fetchall()
+            return {"messages": [{"role": r["role"], "content": r["content"], "error": r["role"]=="assistant"} for r in rows]}
 
 @app.get("/api/settings")
 def get_settings(request: Request):
@@ -295,3 +324,7 @@ async def save_settings(request: Request):
         cfg_set("idle_timeout", str(t))
         Path("/tmp/idle_timeout_min").write_text(str(t))
     return {"ok": True}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=9000)
