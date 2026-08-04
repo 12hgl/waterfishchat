@@ -296,14 +296,39 @@ async def do_web_search(engine, api_key, query):
 
     async with httpx.AsyncClient(timeout=20) as client:
         if engine == "bing":
-            sr = await client.get(
-                "https://api.bing.microsoft.com/v7.0/search",
-                params={"q": query, "count": str(max_results)},
-                headers={"Ocp-Apim-Subscription-Key": api_key}
-            )
-            if sr.status_code == 200:
-                results = sr.json().get("webPages", {}).get("value", [])[:max_results]
-                items = [(r.get("name",""), r.get("url",""), r.get("snippet","")) for r in results]
+            if api_key:
+                sr = await client.get(
+                    "https://api.bing.microsoft.com/v7.0/search",
+                    params={"q": query, "count": str(max_results), "mkt": "zh-CN"},
+                    headers={"Ocp-Apim-Subscription-Key": api_key}
+                )
+                if sr.status_code == 200:
+                    results = sr.json().get("webPages", {}).get("value", [])[:max_results]
+                    items = [(r.get("name",""), r.get("url",""), r.get("snippet","")) for r in results]
+                else:
+                    items = []
+            else:
+                import urllib.parse
+                qs = urllib.parse.quote(query)
+                sr = await client.get(
+                    f"https://www.bing.com/search?q={qs}&count={max_results}",
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                )
+                if sr.status_code == 200:
+                    from re import findall
+                    html = sr.text
+                    titles = findall(r'<h2[^>]*><a[^>]*>(.*?)</a></h2>', html, re.S)
+                    links = findall(r'<h2[^>]*><a[^>]*href="([^"]+)"', html)
+                    snippets = findall(r'<p[^>]*class="[^"]*b_lineclamp[^"]*"[^>]*>(.*?)</p>', html, re.S)
+                    items = []
+                    for i in range(min(len(titles), max_results)):
+                        items.append((
+                            re.sub(r'<[^>]+>', '', titles[i]).strip() if i < len(titles) else f"结果{i+1}",
+                            links[i] if i < len(links) else "#",
+                            re.sub(r'<[^>]+>', '', snippets[i]).strip() if i < len(snippets) else ""
+                        ))
+                else:
+                    items = []
 
         elif engine == "tavily":
             sr = await client.post(
@@ -412,7 +437,7 @@ async def chat_in_conversation(cid: str, request: Request):
     if web_search:
         engine = cfg_get("web_search_engine") or "bing"
         search_key = cfg_get("web_search_api_key") or ""
-        if search_key:
+        if search_key or engine == "bing":
             try:
                 query = content or " "
                 sc = await do_web_search(engine, search_key, query)
