@@ -232,7 +232,7 @@ def status(request: Request):
     except:
         pw = cfg_get("admin_password_hash")
         initialized = pw is not None
-    resp = {"initialized": initialized, "turnstile_site_key": cfg_get("turnstile_site_key") or ""}
+    resp = {"initialized": initialized, "turnstile_site_key": cfg_get("turnstile_site_key") or "", "is_admin": False, "username": ""}
     user = get_current_user(request)
     if user:
         resp["username"] = user["username"]

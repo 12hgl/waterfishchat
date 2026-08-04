@@ -910,14 +910,39 @@ async function settings_saveAll() {
   } catch (e) { alert('保存失败: ' + e.message); }
 }
 
+function setMainError(msg) {
+  const main = document.querySelector('.set-main');
+  if (main) main.innerHTML = '<div style="padding:24px;background:var(--danger-bg);color:var(--danger-text);border-radius:10px;margin:16px;">' + msg + '</div>';
+}
+
 async function initSettings() {
+  // Bind all events immediately — page stays responsive regardless of API status
+  document.querySelectorAll('.set-nav-item').forEach(item => {
+    item.addEventListener('click', () => settings_switchTab(item.dataset.tab));
+  });
+  $('#btn-add-provider')?.addEventListener('click', () => {
+    S.activePid = null;
+    settings_renderProviderList();
+    settings_renderProviderForm(null);
+  });
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn-sm primary';
+  saveBtn.textContent = '保存设置';
+  saveBtn.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:10px 20px;font-size:13px;box-shadow:0 2px 12px rgba(0,0,0,.15);z-index:10;';
+  saveBtn.addEventListener('click', settings_saveAll);
+  document.body.appendChild(saveBtn);
+
+  // Check auth — show clear error instead of silent redirect
   try {
     const s = await api('GET', '/api/status');
-    if (!s.initialized) { window.location.href = 'index.html'; return; }
-    if (!s.is_admin) { window.location.href = 'index.html'; return; }
-  } catch { window.location.href = 'index.html'; return; }
+    if (!s.initialized) { setMainError('系统未初始化，请先 <a href="index.html">完成初始化</a> 后再访问设置'); return; }
+    if (!s.is_admin) { setMainError('需要管理员权限，请 <a href="index.html">返回首页</a>'); return; }
+  } catch (e) {
+    setMainError('连接服务器失败（' + esc(e.message) + '），请 <a href="index.html">刷新重试</a>');
+    return;
+  }
 
-  // Load settings
+  // Load data asynchronously
   try {
     const s = await api('GET', '/api/settings');
     $('#settings-sitekey').value = s.turnstile_site_key || '';
@@ -932,26 +957,6 @@ async function initSettings() {
   } catch {}
 
   try { await settings_loadProviders(); settings_renderProviderList(); if (S.activePid) settings_renderProviderForm(S.activePid); } catch {}
-
-  // Tab switching
-  document.querySelectorAll('.set-nav-item').forEach(item => {
-    item.addEventListener('click', () => settings_switchTab(item.dataset.tab));
-  });
-
-  // Add provider button
-  $('#btn-add-provider')?.addEventListener('click', () => {
-    S.activePid = null;
-    settings_renderProviderList();
-    settings_renderProviderForm(null);
-  });
-
-  // Save settings button (at bottom of each panel)
-  const saveBtn = document.createElement('button');
-  saveBtn.className = 'btn-sm primary';
-  saveBtn.textContent = '保存设置';
-  saveBtn.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:10px 20px;font-size:13px;box-shadow:0 2px 12px rgba(0,0,0,.15);z-index:10;';
-  saveBtn.addEventListener('click', settings_saveAll);
-  document.body.appendChild(saveBtn);
 }
 
 // ===== USERS PAGE ==============================================================
@@ -1015,15 +1020,27 @@ async function users_delete(uid) {
 }
 
 async function initUsers() {
-  try {
-    const s = await api('GET', '/api/status');
-    if (!s.initialized || !s.is_admin) { window.location.href = 'index.html'; return; }
-  } catch { window.location.href = 'index.html'; return; }
-
-  try { await users_load(); } catch {}
+  // Bind events immediately
   $('#btn-add-user')?.addEventListener('click', users_toggleAdd);
   $('#btn-add-user-confirm')?.addEventListener('click', users_add);
   $('#btn-add-user-cancel')?.addEventListener('click', users_toggleAdd);
+
+  // Check auth — show error instead of silent redirect
+  try {
+    const s = await api('GET', '/api/status');
+    if (!s.initialized || !s.is_admin) {
+      const list = $('#user-list');
+      if (list) list.innerHTML = '<div class="usr-error">无权限访问，请 <a href="index.html">返回首页</a></div>';
+      return;
+    }
+  } catch (e) {
+    const list = $('#user-list');
+    if (list) list.innerHTML = '<div class="usr-error">连接失败: ' + esc(e.message) + '，请 <a href="index.html">刷新重试</a></div>';
+    return;
+  }
+
+  // Load data
+  try { await users_load(); } catch {}
 }
 
 // ===== PAGE ROUTER =============================================================
