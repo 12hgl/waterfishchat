@@ -923,9 +923,7 @@ async function initSettings() {
     $('#settings-user-models').value = s.user_models || '';
   } catch {}
 
-  await settings_loadProviders();
-  settings_renderProviderList();
-  if (S.activePid) settings_renderProviderForm(S.activePid);
+  try { await settings_loadProviders(); settings_renderProviderList(); if (S.activePid) settings_renderProviderForm(S.activePid); } catch {}
 
   // Tab switching
   document.querySelectorAll('.set-nav-item').forEach(item => {
@@ -1013,7 +1011,7 @@ async function initUsers() {
     if (!s.initialized || !s.is_admin) { window.location.href = 'index.html'; return; }
   } catch { window.location.href = 'index.html'; return; }
 
-  await users_load();
+  try { await users_load(); } catch {}
   $('#btn-add-user')?.addEventListener('click', users_toggleAdd);
   $('#btn-add-user-confirm')?.addEventListener('click', users_add);
   $('#btn-add-user-cancel')?.addEventListener('click', users_toggleAdd);
