@@ -918,8 +918,9 @@ function setMainError(msg) {
 
 async function initSettings() {
   // Bind all events immediately — page stays responsive regardless of API status
-  document.querySelectorAll('.set-nav-item').forEach(item => {
-    item.addEventListener('click', () => settings_switchTab(item.dataset.tab));
+  document.querySelector('.set-nav')?.addEventListener('click', (e) => {
+    const item = e.target.closest('.set-nav-item');
+    if (item) settings_switchTab(item.dataset.tab);
   });
   $('#btn-add-provider')?.addEventListener('click', () => {
     S.activePid = null;
@@ -1021,9 +1022,14 @@ async function users_delete(uid) {
 
 async function initUsers() {
   // Bind events immediately
-  $('#btn-add-user')?.addEventListener('click', users_toggleAdd);
-  $('#btn-add-user-confirm')?.addEventListener('click', users_add);
-  $('#btn-add-user-cancel')?.addEventListener('click', users_toggleAdd);
+  document.querySelector('.usr-main')?.addEventListener('click', (e) => {
+    const id = e.target.id || '';
+    const closest = e.target.closest('[id]');
+    const cid = closest ? closest.id : '';
+    if (id === 'btn-add-user' || cid === 'btn-add-user') users_toggleAdd();
+    else if (id === 'btn-add-user-confirm' || cid === 'btn-add-user-confirm') users_add();
+    else if (id === 'btn-add-user-cancel' || cid === 'btn-add-user-cancel') users_toggleAdd();
+  });
 
   // Check auth — redirect to index if not admin
   try {
