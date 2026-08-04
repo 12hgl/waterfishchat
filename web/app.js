@@ -269,7 +269,9 @@ function renderProviderForm(pid) {
       <label>API Key <span style="color:var(--danger-text)">*</span></label>
       <input type="password" id="pf-key" placeholder="sk-...">
       <label>模型 <span style="color:var(--danger-text)">*</span></label>
-      <input type="text" id="pf-model" placeholder="deepseek-chat">
+      <div class="pf-field" style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="pf-model" placeholder="deepseek-chat" style="flex:1">
+      </div>
       <div class="provider-form-actions">
         <button class="btn-secondary" id="btn-pf-cancel">取消</button>
         <button class="btn-primary" id="btn-pf-save">保存</button>
@@ -288,7 +290,10 @@ function renderProviderForm(pid) {
       <label>API Key</label>
       <input type="password" id="pf-key" placeholder="留空则不修改">
       <label>模型 <span style="color:var(--danger-text)">*</span></label>
-      <input type="text" id="pf-model" value="${esc(p.model)}">
+      <div class="pf-field" style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="pf-model" value="${esc(p.model)}" style="flex:1">
+        <button type="button" class="btn-secondary" id="btn-pf-fetch">获取</button>
+      </div>
       <div class="provider-form-actions">
         <button class="btn-danger" id="btn-pf-delete">删除</button>
         <button class="btn-secondary" id="btn-pf-cancel">取消</button>
@@ -298,6 +303,7 @@ function renderProviderForm(pid) {
     $('#btn-pf-save').addEventListener('click', () => saveProviderForm(pid));
     $('#btn-pf-cancel').addEventListener('click', () => { area.innerHTML = ''; renderProviderList(); });
     $('#btn-pf-delete').addEventListener('click', () => deleteProviderInline(pid));
+    $('#btn-pf-fetch').addEventListener('click', () => fetchProviderModels(pid));
   }
 }
 
@@ -343,6 +349,42 @@ async function deleteProviderInline(pid) {
   } catch (e) { alert(e.message); }
 }
 
+function toggleQueritOptions() {
+  const q = $('#querit-options');
+  if (!$('#settings-search-engine')) return;
+  q.classList.toggle('hidden', $('#settings-search-engine').value !== 'querit');
+}
+
+async function fetchProviderModels(pid) {
+  const btn = $('#btn-pf-fetch');
+  if (btn) { btn.disabled = true; btn.textContent = '获取中...'; }
+  try {
+    const r = await api('POST', `/api/providers/${pid}/fetch-models`);
+    const models = r.models || [];
+    if (!models.length) { alert('未获取到模型列表'); return; }
+    const modelInput = $('#pf-model');
+    const modelWrap = modelInput.closest('.pf-field') || modelInput.parentElement;
+    let picker = document.getElementById('pf-model-picker');
+    if (!picker) {
+      picker = document.createElement('div');
+      picker.id = 'pf-model-picker';
+      picker.className = 'model-picker';
+      modelWrap.appendChild(picker);
+    }
+    picker.innerHTML = models.map(m => `<div class="model-picker-item" data-model="${esc(m.id)}">${esc(m.id)}</div>`).join('');
+    picker.querySelectorAll('.model-picker-item').forEach(el => {
+      el.addEventListener('click', () => {
+        modelInput.value = el.dataset.model;
+        picker.remove();
+      });
+    });
+  } catch (e) {
+    alert('获取模型失败: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '获取'; }
+  }
+}
+
 function renderProviderList() {
   const list = $('#provider-list');
   list.innerHTML = S.providers.map(p => `
@@ -372,8 +414,11 @@ async function openSettings() {
     $('#settings-secret').value = s.turnstile_secret || '';
     $('#settings-idle').value = s.idle_timeout;
     $('#settings-container-net').checked = s.use_container_network || false;
-    $('#settings-search-url').value = s.web_search_api_url || '';
+    $('#settings-search-engine').value = s.web_search_engine || 'bing';
     $('#settings-search-key').value = s.web_search_api_key || '';
+    $('#settings-querit-max').value = s.querit_max_results || 10;
+    $('#settings-querit-time').value = s.querit_time_range || 'none';
+    toggleQueritOptions();
     switchSettingsTab('general');
     renderProviderList();
     $('#settings-page').classList.remove('hidden');
@@ -387,8 +432,10 @@ async function saveSettings() {
       turnstile_secret: $('#settings-secret').value.trim(),
       idle_timeout: parseInt($('#settings-idle').value) || 15,
       use_container_network: $('#settings-container-net').checked,
-      web_search_api_url: $('#settings-search-url').value.trim(),
-      web_search_api_key: $('#settings-search-key').value.trim()
+      web_search_engine: $('#settings-search-engine').value,
+      web_search_api_key: $('#settings-search-key').value.trim(),
+      querit_max_results: parseInt($('#settings-querit-max').value) || 10,
+      querit_time_range: $('#settings-querit-time').value
     });
     $('#settings-page').classList.add('hidden');
   } catch (e) { alert(e.message); }
@@ -521,6 +568,8 @@ if (localStorage.getItem('sb-collapsed') === 'true') {
 $('#btn-conv-settings').addEventListener('click', openConvSettings);
 $('#btn-conv-settings-cancel').addEventListener('click', () => $('#conv-settings-overlay').classList.add('hidden'));
 $('#btn-conv-settings-save').addEventListener('click', saveConvSettings);
+
+$('#settings-search-engine').addEventListener('change', toggleQueritOptions);
 
 function openConvSettings() {
   if (!S.activeCid) return;

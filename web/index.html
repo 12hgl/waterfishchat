@@ -134,10 +134,27 @@
         </div>
         <div class="settings-section">
           <div class="settings-section-title">联网搜索</div>
-          <label class="settings-label">搜索 API 地址</label>
-          <input type="text" id="settings-search-url" placeholder="如：SearXNG 或自定义搜索 API">
-          <label class="settings-label">搜索 API Key</label>
-          <input type="password" id="settings-search-key" placeholder="可选">
+          <label class="settings-label">搜索引擎</label>
+          <select id="settings-search-engine">
+            <option value="bing">Bing Search</option>
+            <option value="tavily">Tavily</option>
+            <option value="bocha">BoCha</option>
+            <option value="querit">Querit</option>
+          </select>
+          <label class="settings-label">API Key</label>
+          <input type="password" id="settings-search-key" placeholder="各引擎共用 API Key">
+          <div id="querit-options" class="hidden">
+            <label class="settings-label">最大结果数</label>
+            <input type="number" id="settings-querit-max" min="1" max="20" value="10">
+            <label class="settings-label">时间范围</label>
+            <select id="settings-querit-time">
+              <option value="none">不限</option>
+              <option value="day">过去一天</option>
+              <option value="week">过去一周</option>
+              <option value="month">过去一月</option>
+              <option value="year">过去一年</option>
+            </select>
+          </div>
         </div>
       </div>
       <div class="settings-panel hidden" id="panel-providers">
@@ -154,7 +171,7 @@
           <img src="icon.ico" width="48" height="48" alt="">
           <h3>水鱼 Chat</h3>
           <p>轻量私有 AI 聊天</p>
-          <p class="about-version">Version 1.5</p>
+          <p class="about-version">Version 1.6</p>
           <p class="about-link"><a href="https://github.com/12hgl/waterfishchat" target="_blank">github.com/12hgl/waterfishchat</a></p>
         </div>
       </div>

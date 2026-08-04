@@ -290,6 +290,64 @@ async def upload_files(request: Request, files: list[UploadFile] = File(...)):
         file_ids.append({"id": fid, "name": f.filename, "size": len(content), "ext": ext})
     return {"file_ids": file_ids, "ok": True}
 
+async def do_web_search(engine, api_key, query):
+    max_results = int(cfg_get("querit_max_results") or 10) if engine == "querit" else 5
+    time_range = cfg_get("querit_time_range") or "none"
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        if engine == "bing":
+            sr = await client.get(
+                "https://api.bing.microsoft.com/v7.0/search",
+                params={"q": query, "count": str(max_results)},
+                headers={"Ocp-Apim-Subscription-Key": api_key}
+            )
+            if sr.status_code == 200:
+                results = sr.json().get("webPages", {}).get("value", [])[:max_results]
+                items = [(r.get("name",""), r.get("url",""), r.get("snippet","")) for r in results]
+
+        elif engine == "tavily":
+            sr = await client.post(
+                "https://api.tavily.com/search",
+                json={"api_key": api_key, "query": query, "max_results": max_results, "search_depth": "basic"}
+            )
+            if sr.status_code == 200:
+                results = sr.json().get("results", [])[:max_results]
+                items = [(r.get("title",""), r.get("url",""), r.get("content","")) for r in results]
+
+        elif engine == "bocha":
+            sr = await client.post(
+                "https://api.bochaai.com/v1/ai/search",
+                json={"query": query, "count": max_results},
+                headers={"Authorization": f"Bearer {api_key}"}
+            )
+            if sr.status_code == 200:
+                data = sr.json()
+                results = (data.get("data", {}) if isinstance(data.get("data"), dict) else {}).get("webPages", {}).get("value", data.get("results", []))[:max_results]
+                items = [(r.get("name", r.get("title","")), r.get("url",""), r.get("snippet", r.get("summary",""))) for r in results]
+
+        elif engine == "querit":
+            body = {"query": query, "max_results": max_results}
+            if time_range and time_range != "none":
+                body["time_range"] = time_range
+            sr = await client.post(
+                "https://api.querit.ai/v1/search",
+                json=body,
+                headers={"Authorization": f"Bearer {api_key}"}
+            )
+            if sr.status_code == 200:
+                data = sr.json()
+                results = data.get("results", [])[:max_results]
+                items = [(r.get("title",""), r.get("url",""), r.get("snippet", r.get("content",""))) for r in results]
+        else:
+            return None
+
+        if items:
+            return "联网搜索结果:\n" + "\n".join(
+                f"- [{title or '链接'}]({url}): {(snippet or '')[:200]}"
+                for title, url, snippet in items
+            )
+    return None
+
 @app.post("/api/conversations/{cid}/chat")
 async def chat_in_conversation(cid: str, request: Request):
     if not check_session(request): raise HTTPException(401)
@@ -352,25 +410,14 @@ async def chat_in_conversation(cid: str, request: Request):
             user_content_for_db = user_content
 
     if web_search:
-        search_api = cfg_get("web_search_api_url")
-        search_key = cfg_get("web_search_api_key")
-        if search_api:
+        engine = cfg_get("web_search_engine") or "bing"
+        search_key = cfg_get("web_search_api_key") or ""
+        if search_key:
             try:
                 query = content or " "
-                async with httpx.AsyncClient(timeout=15) as client:
-                    headers = {}
-                    if search_key:
-                        headers["Authorization"] = f"Bearer {search_key}"
-                    sr = await client.get(search_api, params={"q": query, "format": "json"}, headers=headers)
-                    if sr.status_code == 200:
-                        sdata = sr.json()
-                        results = sdata.get("results", [])[:5]
-                        if results:
-                            sc = "联网搜索结果:\n" + "\n".join(
-                                f"- [{r.get('title','链接')}]({r.get('url','')}): {r.get('content','')[:200]}"
-                                for r in results
-                            )
-                            user_content = sc + "\n\n用户问题: " + user_content
+                sc = await do_web_search(engine, search_key, query)
+                if sc:
+                    user_content = sc + "\n\n用户问题: " + user_content
             except:
                 pass
 
@@ -438,8 +485,10 @@ def get_settings(request: Request):
         "turnstile_secret": cfg_get("turnstile_secret") or "",
         "idle_timeout": int(cfg_get("idle_timeout") or 15),
         "use_container_network": cfg_get("use_container_network") == "true",
-        "web_search_api_url": cfg_get("web_search_api_url") or "",
-        "web_search_api_key": cfg_get("web_search_api_key") or ""
+        "web_search_engine": cfg_get("web_search_engine") or "bing",
+        "web_search_api_key": cfg_get("web_search_api_key") or "",
+        "querit_max_results": int(cfg_get("querit_max_results") or 10),
+        "querit_time_range": cfg_get("querit_time_range") or "none"
     }
 
 @app.post("/api/settings")
@@ -449,13 +498,51 @@ async def save_settings(request: Request):
     if "turnstile_site_key" in body: cfg_set("turnstile_site_key", body["turnstile_site_key"])
     if "turnstile_secret" in body: cfg_set("turnstile_secret", body["turnstile_secret"])
     if "use_container_network" in body: cfg_set("use_container_network", "true" if body["use_container_network"] else "false")
-    if "web_search_api_url" in body: cfg_set("web_search_api_url", body["web_search_api_url"])
+    if "web_search_engine" in body: cfg_set("web_search_engine", body["web_search_engine"])
     if "web_search_api_key" in body: cfg_set("web_search_api_key", body["web_search_api_key"])
+    if "querit_max_results" in body: cfg_set("querit_max_results", str(body["querit_max_results"]))
+    if "querit_time_range" in body: cfg_set("querit_time_range", body["querit_time_range"])
     if "idle_timeout" in body:
         t = max(1, min(120, int(body["idle_timeout"])))
         cfg_set("idle_timeout", str(t))
         Path("/tmp/idle_timeout_min").write_text(str(t))
     return {"ok": True}
+
+@app.post("/api/providers/{pid}/fetch-models")
+async def fetch_models(pid: str, request: Request):
+    if not check_session(request): raise HTTPException(401)
+    with use_db() as db:
+        provider = db.execute("SELECT * FROM providers WHERE id=?", (pid,)).fetchone()
+    if not provider: raise HTTPException(404)
+    base = provider["base_url"].rstrip("/")
+    key = provider["api_key"]
+    models_url = f"{base}/models"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            headers = {"Authorization": f"Bearer {key}"} if key else {}
+            resp = await client.get(models_url, headers=headers)
+        if resp.status_code != 200:
+            raise HTTPException(502, f"API returned {resp.status_code}: {await resp.atext()}"[:500])
+        data = resp.json()
+        model_list = []
+        if isinstance(data, dict):
+            items = data.get("data", data.get("models", []))
+        elif isinstance(data, list):
+            items = data
+        else:
+            items = []
+        for m in items:
+            if isinstance(m, dict):
+                mid = m.get("id", m.get("model", ""))
+                if mid:
+                    model_list.append({"id": mid, "owned_by": m.get("owned_by", ""), "created": m.get("created", 0)})
+            elif isinstance(m, str):
+                model_list.append({"id": m})
+        return {"models": model_list, "ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, str(e))
 
 if __name__ == "__main__":
     import uvicorn
