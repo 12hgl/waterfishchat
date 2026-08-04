@@ -19,7 +19,8 @@ async function api(method, path, body) {
 
 const S = {
   page: 'loading', providers: [], activePid: null,
-  convs: [], activeCid: null, messages: [], settings: {}, streaming: false
+  convs: [], activeCid: null, messages: [], settings: {}, streaming: false,
+  files: [], webSearch: false
 };
 
 function esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
@@ -110,6 +111,17 @@ function renderProviderBar() {
   });
 }
 
+function renderModelSelect() {
+  const sel = $('#chat-model-select');
+  sel.innerHTML = S.providers.map(p => `<option value="${p.id}" ${p.id===S.activePid?'selected':''}>${esc(p.name)} · ${esc(p.model)}</option>`).join('');
+  if (!S.providers.length) sel.innerHTML = '<option value="">无提供商</option>';
+  sel.addEventListener('change', async e => {
+    S.activePid = e.target.value || null;
+    await loadConvs();
+    renderAll();
+  }, { once: true });
+}
+
 function renderConvList() {
   const list = $('#conv-list');
   list.innerHTML = S.convs.length
@@ -165,6 +177,7 @@ function renderMessages() {
 
 function renderAll() {
   renderProviderBar();
+  renderModelSelect();
   renderConvList();
   renderMessages();
 }
@@ -196,18 +209,38 @@ async function deleteConv(cid) {
 async function sendMsg() {
   const input = $('#user-input');
   const text = input.value.trim();
-  if (!text || S.streaming) return;
+  const hasFiles = S.files.length > 0;
+  if ((!text && !hasFiles) || S.streaming) return;
   if (!S.activePid) { alert('请先添加 API 提供商'); return; }
   if (!S.activeCid) await newConv();
   if (!S.activeCid) return;
 
   input.value = ''; input.style.height = 'auto';
-  S.messages.push({ role: 'user', content: text });
+  const msg = { role: 'user', content: text };
+  let pendingFiles = [];
+  if (hasFiles) {
+    msg.files = S.files.map(f => ({ name: f.name, size: f.size, type: f.type }));
+    pendingFiles = S.files.slice();
+    clearFiles();
+  }
+  S.messages.push(msg);
   S.streaming = true;
   renderAll();
 
   try {
-    const r = await api('POST', `/api/conversations/${S.activeCid}/chat`, { content: text });
+    const body = { content: text };
+    if (S.webSearch) body.web_search = true;
+    if (msg.files?.length) body.files = msg.files.map(f => f.name);
+    if (pendingFiles.length) {
+      const fd = new FormData();
+      pendingFiles.forEach(f => fd.append('files', f.blob, f.name));
+      const uploadR = await fetch('/api/upload', { method: 'POST', body: fd, credentials: 'same-origin' });
+      if (uploadR.ok) {
+        const uj = await uploadR.json();
+        body.file_ids = uj.file_ids || [];
+      }
+    }
+    const r = await api('POST', `/api/conversations/${S.activeCid}/chat`, body);
     S.streaming = false;
     S.messages = r.messages || S.messages;
     renderAll();
@@ -339,6 +372,8 @@ async function openSettings() {
     $('#settings-secret').value = s.turnstile_secret || '';
     $('#settings-idle').value = s.idle_timeout;
     $('#settings-container-net').checked = s.use_container_network || false;
+    $('#settings-search-url').value = s.web_search_api_url || '';
+    $('#settings-search-key').value = s.web_search_api_key || '';
     switchSettingsTab('general');
     renderProviderList();
     $('#settings-page').classList.remove('hidden');
@@ -351,7 +386,9 @@ async function saveSettings() {
       turnstile_site_key: $('#settings-sitekey').value.trim(),
       turnstile_secret: $('#settings-secret').value.trim(),
       idle_timeout: parseInt($('#settings-idle').value) || 15,
-      use_container_network: $('#settings-container-net').checked
+      use_container_network: $('#settings-container-net').checked,
+      web_search_api_url: $('#settings-search-url').value.trim(),
+      web_search_api_key: $('#settings-search-key').value.trim()
     });
     $('#settings-page').classList.add('hidden');
   } catch (e) { alert(e.message); }
@@ -417,6 +454,51 @@ $('#btn-toggle-sidebar').addEventListener('click', () => {
   }
 });
 $('#btn-add-provider').addEventListener('click', () => renderProviderForm(null));
+
+function addFiles(fs) {
+  for (const f of fs) {
+    if (S.files.length >= 10) break;
+    S.files.push({ name: f.name, size: f.size, type: f.type, blob: f });
+  }
+  renderFiles();
+}
+
+function removeFile(idx) {
+  S.files.splice(idx, 1);
+  renderFiles();
+}
+
+function clearFiles() {
+  S.files = [];
+  renderFiles();
+}
+
+function renderFiles() {
+  const c = $('#attached-files');
+  if (!S.files.length) { c.classList.add('hidden'); c.innerHTML = ''; return; }
+  c.classList.remove('hidden');
+  c.innerHTML = S.files.map((f, i) => {
+    const isImg = f.type.startsWith('image/');
+    return `<div class="attached-file">
+      ${isImg ? `<img src="${URL.createObjectURL(f.blob)}" alt="">` : ''}
+      <span>${esc(f.name)}</span>
+      <button class="file-remove" data-idx="${i}">&times;</button>
+    </div>`;
+  }).join('');
+  c.querySelectorAll('.file-remove').forEach(btn => {
+    btn.addEventListener('click', () => removeFile(parseInt(btn.dataset.idx)));
+  });
+}
+
+$('#btn-attach').addEventListener('click', () => $('#file-input').click());
+$('#file-input').addEventListener('change', e => {
+  if (e.target.files.length) addFiles(e.target.files);
+  e.target.value = '';
+});
+$('#btn-web-search').addEventListener('click', () => {
+  S.webSearch = !S.webSearch;
+  $('#btn-web-search').classList.toggle('active', S.webSearch);
+});
 
 $$('.settings-nav-item').forEach(el => {
   el.addEventListener('click', () => switchSettingsTab(el.dataset.tab));

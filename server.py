@@ -1,7 +1,7 @@
-import hashlib, secrets, time, sqlite3, os, binascii
+import hashlib, secrets, time, sqlite3, os, binascii, base64, json, re
 from contextlib import contextmanager
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
@@ -9,6 +9,11 @@ import httpx
 DATA_DIR = Path("/data")
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "waterfish.db"
+UPLOAD_DIR = DATA_DIR / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
+
+TEXT_EXT = {'.txt', '.md', '.json', '.csv', '.py', '.js', '.html', '.css', '.xml', '.yaml', '.yml', '.log', '.sh', '.bat', '.ps1', '.conf', '.cfg', '.ini', '.toml'}
+IMG_EXT = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'}
 
 import sys
 print(f"[server] Starting, DB={DB_PATH}, pid={os.getpid()}", flush=True)
@@ -271,13 +276,103 @@ def get_messages(cid: str, request: Request):
         rows = db.execute("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY created_at", (cid,)).fetchall()
         return [{"role": r["role"], "content": r["content"]} for r in rows]
 
+@app.post("/api/upload")
+async def upload_files(request: Request, files: list[UploadFile] = File(...)):
+    if not check_session(request): raise HTTPException(401)
+    file_ids = []
+    for f in files:
+        fid = secrets.token_hex(6)
+        ext = Path(f.filename).suffix.lower() if f.filename else ""
+        fname = f"{fid}{ext}" if ext else fid
+        fpath = UPLOAD_DIR / fname
+        content = await f.read()
+        fpath.write_bytes(content)
+        file_ids.append({"id": fid, "name": f.filename, "size": len(content), "ext": ext})
+    return {"file_ids": file_ids, "ok": True}
+
 @app.post("/api/conversations/{cid}/chat")
 async def chat_in_conversation(cid: str, request: Request):
     if not check_session(request): raise HTTPException(401)
     body = await request.json()
     content = body.get("content", "").strip()
-    if not content:
+    web_search = body.get("web_search", False)
+    file_ids = body.get("file_ids", [])
+
+    if not content and not file_ids:
         raise HTTPException(400, "Empty message")
+
+    user_content = content
+    user_content_for_db = content
+    multimodal_content = None
+
+    if file_ids:
+        file_texts = []
+        image_parts = []
+        for fi in file_ids:
+            fid = fi.get("id") if isinstance(fi, dict) else fi
+            ext = Path(fi.get("ext", "")) if isinstance(fi, dict) else ""
+            fname = fi.get("name", "") if isinstance(fi, dict) else fid
+            if not ext:
+                for f in UPLOAD_DIR.iterdir():
+                    if f.stem == fid:
+                        ext = f.suffix.lower()
+                        break
+            fpath = None
+            for f in UPLOAD_DIR.iterdir():
+                if f.stem == fid:
+                    fpath = f
+                    break
+            if not fpath or not fpath.exists():
+                continue
+            file_bytes = fpath.read_bytes()
+            if ext in IMG_EXT:
+                b64 = base64.b64encode(file_bytes).decode()
+                mime = f"image/{ext[1:]}" if ext[1:] != "jpg" else "image/jpeg"
+                if ext == ".svg":
+                    mime = "image/svg+xml"
+                image_parts.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+            elif ext in TEXT_EXT:
+                try:
+                    t = file_bytes.decode("utf-8")
+                    if len(t) > 8000:
+                        t = t[:8000] + "\n...(truncated)"
+                    file_texts.append(f"[文件: {fname}]\n{t}")
+                except:
+                    file_texts.append(f"[文件: {fname} (binary)]")
+            else:
+                file_texts.append(f"[文件: {fname}]")
+
+        if image_parts:
+            parts = [{"type": "text", "text": content or "分析这张图片"}] + image_parts
+            multimodal_content = parts
+            user_content_for_db = content + " [包含图片]"
+        elif file_texts:
+            fc = "\n\n".join(file_texts)
+            user_content = fc + ("\n\n" + content if content else "")
+            user_content_for_db = user_content
+
+    if web_search:
+        search_api = cfg_get("web_search_api_url")
+        search_key = cfg_get("web_search_api_key")
+        if search_api:
+            try:
+                query = content or " "
+                async with httpx.AsyncClient(timeout=15) as client:
+                    headers = {}
+                    if search_key:
+                        headers["Authorization"] = f"Bearer {search_key}"
+                    sr = await client.get(search_api, params={"q": query, "format": "json"}, headers=headers)
+                    if sr.status_code == 200:
+                        sdata = sr.json()
+                        results = sdata.get("results", [])[:5]
+                        if results:
+                            sc = "联网搜索结果:\n" + "\n".join(
+                                f"- [{r.get('title','链接')}]({r.get('url','')}): {r.get('content','')[:200]}"
+                                for r in results
+                            )
+                            user_content = sc + "\n\n用户问题: " + user_content
+            except:
+                pass
 
     with use_db() as db:
         conv = db.execute("SELECT * FROM conversations WHERE id=?", (cid,)).fetchone()
@@ -290,11 +385,17 @@ async def chat_in_conversation(cid: str, request: Request):
             title = content[:40] + ("..." if len(content) > 40 else "")
             db.execute("UPDATE conversations SET title=? WHERE id=?", (title, cid))
 
-        db.execute("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)", (cid, "user", content))
+        db.execute("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)", (cid, "user", user_content_for_db))
 
         history = db.execute("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY created_at", (cid,)).fetchall()
 
     messages = [{"role": r["role"], "content": r["content"]} for r in history]
+
+    if file_ids and multimodal_content:
+        messages[-1] = {"role": "user", "content": multimodal_content}
+    elif user_content != content:
+        messages[-1] = {"role": "user", "content": user_content}
+
     if conv["system_prompt"]:
         messages.insert(0, {"role": "system", "content": conv["system_prompt"]})
 
@@ -336,7 +437,9 @@ def get_settings(request: Request):
         "turnstile_site_key": cfg_get("turnstile_site_key") or "",
         "turnstile_secret": cfg_get("turnstile_secret") or "",
         "idle_timeout": int(cfg_get("idle_timeout") or 15),
-        "use_container_network": cfg_get("use_container_network") == "true"
+        "use_container_network": cfg_get("use_container_network") == "true",
+        "web_search_api_url": cfg_get("web_search_api_url") or "",
+        "web_search_api_key": cfg_get("web_search_api_key") or ""
     }
 
 @app.post("/api/settings")
@@ -346,6 +449,8 @@ async def save_settings(request: Request):
     if "turnstile_site_key" in body: cfg_set("turnstile_site_key", body["turnstile_site_key"])
     if "turnstile_secret" in body: cfg_set("turnstile_secret", body["turnstile_secret"])
     if "use_container_network" in body: cfg_set("use_container_network", "true" if body["use_container_network"] else "false")
+    if "web_search_api_url" in body: cfg_set("web_search_api_url", body["web_search_api_url"])
+    if "web_search_api_key" in body: cfg_set("web_search_api_key", body["web_search_api_key"])
     if "idle_timeout" in body:
         t = max(1, min(120, int(body["idle_timeout"])))
         cfg_set("idle_timeout", str(t))
