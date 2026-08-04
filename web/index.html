@@ -16,7 +16,6 @@
         <img class="brand-icon" src="icon.ico" width="22" height="22" alt="">
         <span class="brand-name">水鱼 Chat</span>
       </div>
-      <div class="provider-bar" id="provider-bar"></div>
       <button class="btn-new-chat" id="btn-new-chat">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         新对话
@@ -69,7 +68,9 @@
 <div class="overlay hidden" id="init-overlay">
   <div class="dialog">
     <h3>欢迎使用水鱼 Chat</h3>
-    <p class="dialog-desc">首次使用，请设置管理员密码。如需人机验证，可填写 Turnstile 密钥。</p>
+    <p class="dialog-desc">首次使用，请设置管理员账号。如需人机验证，可填写 Turnstile 密钥。</p>
+    <label>管理员用户名 <span class="req">*</span></label>
+    <input type="text" id="init-username" placeholder="admin" value="admin">
     <label>管理员密码 <span class="req">*</span></label>
     <input type="password" id="init-password" placeholder="至少 4 位">
     <label>Turnstile Site Key</label>
@@ -85,7 +86,9 @@
 <div class="overlay hidden" id="login-overlay">
   <div class="dialog">
     <h3>登录水鱼 Chat</h3>
-    <label>管理员密码</label>
+    <label>用户名</label>
+    <input type="text" id="login-username" placeholder="admin" value="admin">
+    <label>密码</label>
     <input type="password" id="login-password" placeholder="输入密码">
     <div id="turnstile-box" class="turnstile-box hidden"></div>
     <div class="dialog-actions">
@@ -108,6 +111,10 @@
       <div class="settings-nav-item" data-tab="system">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         系统
+      </div>
+      <div class="settings-nav-item" data-tab="users">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        用户
       </div>
       <div class="settings-nav-item" data-tab="about">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
@@ -174,12 +181,23 @@
           </label>
         </div>
       </div>
+      <div class="settings-panel hidden" id="panel-users">
+        <div class="settings-section">
+          <div class="settings-section-title">用户管理</div>
+          <div id="user-list"></div>
+          <div class="user-add">
+            <input type="text" id="new-username" placeholder="用户名">
+            <input type="password" id="new-user-password" placeholder="密码（至少4位）">
+            <button class="btn-primary" id="btn-add-user">添加用户</button>
+          </div>
+        </div>
+      </div>
       <div class="settings-panel hidden" id="panel-about">
         <div class="settings-about">
           <img src="icon.ico" width="48" height="48" alt="">
           <h3>水鱼 Chat</h3>
           <p>轻量私有 AI 聊天</p>
-          <p class="about-version">Version 1.7</p>
+          <p class="about-version">Version 1.8</p>
           <p class="about-link"><a href="https://github.com/12hgl/waterfishchat" target="_blank">github.com/12hgl/waterfishchat</a></p>
         </div>
       </div>

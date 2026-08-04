@@ -60,6 +60,14 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_conv_provider ON conversations(provider_id);
             CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id);
+
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                is_admin INTEGER DEFAULT 0,
+                created_at REAL DEFAULT (strftime('%s','now'))
+            );
         """)
 
 init_db()
@@ -100,13 +108,47 @@ def verify_pw(pw, stored):
 
 def make_token(): return secrets.token_hex(32)
 
-def check_session(request: Request):
+def get_session_user_id(request: Request):
     token = request.cookies.get("session")
-    if token:
-        val = cfg_get(f"session_{token}")
-        if val and time.time() - float(val) < 86400:
-            return True
-    return False
+    if not token: return None
+    val = cfg_get(f"session_{token}")
+    if not val: return None
+    try:
+        if "|" in val:
+            ts_str, uid = val.split("|", 1)
+            if time.time() - float(ts_str) < 86400:
+                return uid
+        else:
+            if time.time() - float(val) < 86400:
+                return None  # legacy session, fallback below
+    except (ValueError, TypeError):
+        pass
+    return None
+
+def get_current_user(request: Request):
+    uid = get_session_user_id(request)
+    if uid:
+        with use_db() as db:
+            return db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    # legacy session: match first admin
+    val = request.cookies.get("session")
+    if val and cfg_get(f"session_{val}"):
+        try:
+            if time.time() - float(cfg_get(f"session_{val}")) < 86400:
+                with use_db() as db:
+                    return db.execute("SELECT * FROM users WHERE is_admin=1 ORDER BY created_at LIMIT 1").fetchone()
+        except:
+            pass
+    return None
+
+def check_session(request: Request):
+    return get_current_user(request) is not None
+
+def check_admin(request: Request):
+    u = get_current_user(request)
+    if not u or not u["is_admin"]:
+        raise HTTPException(403, "Admin only")
+    return u
 
 def cleanup_sessions():
     now = time.time()
@@ -114,8 +156,13 @@ def cleanup_sessions():
         rows = db.execute("SELECT key FROM config WHERE key LIKE 'session_%'").fetchall()
         for r in rows:
             val = cfg_get(r["key"])
-            if val and now - float(val) > 86400:
-                db.execute("DELETE FROM config WHERE key=?", (r["key"],))
+            if not val: continue
+            try:
+                ts_str = val.split("|")[0] if "|" in val else val
+                if now - float(ts_str) > 86400:
+                    db.execute("DELETE FROM config WHERE key=?", (r["key"],))
+            except:
+                pass
 
 LOGIN_ATTEMPTS = {}
 LOGIN_RATE_LIMIT = 10
@@ -134,58 +181,99 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 @app.get("/api/status")
 def status():
-    pw = cfg_get("admin_password_hash")
-    return {"initialized": pw is not None, "turnstile_site_key": cfg_get("turnstile_site_key") or ""}
+    try:
+        with use_db() as db:
+            admin = db.execute("SELECT id FROM users WHERE is_admin=1 LIMIT 1").fetchone()
+        return {"initialized": admin is not None, "turnstile_site_key": cfg_get("turnstile_site_key") or ""}
+    except:
+        pw = cfg_get("admin_password_hash")
+        return {"initialized": pw is not None, "turnstile_site_key": cfg_get("turnstile_site_key") or ""}
 
 @app.post("/api/init")
 async def init(request: Request):
-    if cfg_get("admin_password_hash"):
+    with use_db() as db:
+        admin = db.execute("SELECT id FROM users WHERE is_admin=1 LIMIT 1").fetchone()
+    if admin:
         raise HTTPException(400, "Already initialized")
     ip = request.client.host if request.client else "unknown"
     if not check_login_ratelimit(ip):
         raise HTTPException(429, "Too many attempts")
     body = await request.json()
+    name = body.get("admin_name", "").strip() or "admin"
     pw = body.get("password", "").strip()
     if len(pw) < 4:
         raise HTTPException(400, "Password too short")
-    cfg_set("admin_password_hash", hash_pw(pw))
+    with use_db() as db:
+        uid = secrets.token_hex(8)
+        db.execute("INSERT INTO users (id, username, password_hash, is_admin) VALUES (?,?,?,1)", (uid, name, hash_pw(pw)))
     cfg_set("turnstile_site_key", body.get("turnstile_site_key", ""))
     cfg_set("turnstile_secret", body.get("turnstile_secret", ""))
     token = make_token()
-    cfg_set(f"session_{token}", str(time.time()))
+    cfg_set(f"session_{token}", f"{time.time()}|{uid}")
     cleanup_sessions()
-    resp = JSONResponse({"ok": True})
+    resp = JSONResponse({"ok": True, "admin_name": name})
     resp.set_cookie("session", token, httponly=True, max_age=86400, samesite="lax")
     return resp
 
 @app.post("/api/login")
 async def login(request: Request):
-    stored = cfg_get("admin_password_hash")
-    if not stored:
-        raise HTTPException(400, "Not initialized")
+    try:
+        with use_db() as db:
+            _ = db.execute("SELECT id FROM users WHERE is_admin=1 LIMIT 1").fetchone()
+    except:
+        pass
     ip = request.client.host if request.client else "unknown"
     if not check_login_ratelimit(ip):
         raise HTTPException(429, "Too many attempts")
     body = await request.json()
-    if not verify_pw(body.get("password", ""), stored):
-        raise HTTPException(401, "Wrong password")
+    username = body.get("username", "").strip()
+    pw = body.get("password", "")
+    if not username:
+        raise HTTPException(400, "用户名不能为空")
+
+    # try new users table first
+    user = None
+    with use_db() as db:
+        try:
+            user = db.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+        except:
+            pass
+    if user and verify_pw(pw, user["password_hash"]):
+        pass
+    elif not user:
+        # fallback: old admin_password_hash (backward compat & auto-migrate)
+        stored = cfg_get("admin_password_hash")
+        if username == "admin" and stored and verify_pw(pw, stored):
+            with use_db() as db:
+                existing = db.execute("SELECT id FROM users WHERE username='admin'").fetchone()
+                if existing:
+                    uid = existing["id"]
+                else:
+                    uid = secrets.token_hex(8)
+                    db.execute("INSERT INTO users (id, username, password_hash, is_admin) VALUES (?,?,?,1)", (uid, "admin", stored))
+            user = {"id": uid, "username": "admin", "is_admin": 1}
+        else:
+            raise HTTPException(401, "用户名或密码错误")
+    else:
+        raise HTTPException(401, "用户名或密码错误")
 
     secret = cfg_get("turnstile_secret")
-    if secret:
-        token = body.get("turnstile_token", "")
-        if not token:
+    sitekey = cfg_get("turnstile_site_key")
+    if secret and sitekey:
+        turnstile_token = body.get("turnstile_token", "")
+        if not turnstile_token:
             raise HTTPException(400, "Turnstile token required")
         async with httpx.AsyncClient() as client:
             r = await client.post("https://challenges.cloudflare.com/turnstile/v0/siteverify", data={
-                "secret": secret, "response": token
+                "secret": secret, "response": turnstile_token
             })
             if not r.json().get("success"):
                 raise HTTPException(401, "Turnstile verification failed")
 
     token = make_token()
-    cfg_set(f"session_{token}", str(time.time()))
+    cfg_set(f"session_{token}", f"{time.time()}|{user['id']}")
     cleanup_sessions()
-    resp = JSONResponse({"ok": True})
+    resp = JSONResponse({"ok": True, "username": user["username"]})
     resp.set_cookie("session", token, httponly=True, max_age=86400, samesite="lax")
     return resp
 
@@ -194,6 +282,45 @@ def logout():
     resp = JSONResponse({"ok": True})
     resp.delete_cookie("session")
     return resp
+
+@app.get("/api/users")
+def list_users(request: Request):
+    check_admin(request)
+    with use_db() as db:
+        rows = db.execute("SELECT id, username, is_admin, created_at FROM users ORDER BY created_at").fetchall()
+    return {"users": [dict(r) for r in rows]}
+
+@app.post("/api/users")
+async def add_user(request: Request):
+    check_admin(request)
+    body = await request.json()
+    name = body.get("username", "").strip()
+    pw = body.get("password", "").strip()
+    if not name or len(pw) < 4:
+        raise HTTPException(400, "用户名不能为空，密码至少 4 位")
+    with use_db() as db:
+        exists = db.execute("SELECT id FROM users WHERE username=?", (name,)).fetchone()
+        if exists:
+            raise HTTPException(400, "用户名已存在")
+        uid = secrets.token_hex(8)
+        db.execute("INSERT INTO users (id, username, password_hash, is_admin) VALUES (?,?,?,0)", (uid, name, hash_pw(pw)))
+    return {"ok": True, "id": uid, "username": name}
+
+@app.delete("/api/users/{uid}")
+def delete_user(uid: str, request: Request):
+    me = check_admin(request)
+    if me["id"] == uid:
+        raise HTTPException(400, "不能删除自己")
+    with use_db() as db:
+        target = db.execute("SELECT id, is_admin FROM users WHERE id=?", (uid,)).fetchone()
+        if not target:
+            raise HTTPException(404, "用户不存在")
+        if target["is_admin"]:
+            admins = db.execute("SELECT id FROM users WHERE is_admin=1").fetchall()
+            if len(admins) <= 1:
+                raise HTTPException(400, "至少保留一个管理员")
+        db.execute("DELETE FROM users WHERE id=?", (uid,))
+    return {"ok": True}
 
 @app.get("/api/providers")
 def get_providers(request: Request):

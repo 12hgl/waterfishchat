@@ -1,6 +1,19 @@
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 let turnstileWid = null;
+let turnstileReady = false;
+
+function ensureTurnstile(cb) {
+  if (window.turnstile) { turnstileReady = true; cb(); return; }
+  let tries = 0, max = 100;
+  const t = setInterval(() => {
+    tries++;
+    if (window.turnstile || tries >= max) {
+      clearInterval(t);
+      if (window.turnstile) { turnstileReady = true; cb(); }
+    }
+  }, 100);
+}
 
 async function api(method, path, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' };
@@ -72,10 +85,12 @@ function showLogin() {
   const box = $('#turnstile-box');
   if (S.settings.turnstileSiteKey) {
     box.classList.remove('hidden');
-    if (turnstileWid !== null) turnstile.remove(turnstileWid);
-    turnstileWid = turnstile.render('#turnstile-box', { sitekey: S.settings.turnstileSiteKey, theme: 'auto' });
+    ensureTurnstile(() => {
+      try { turnstile.remove(turnstileWid); } catch {}
+      try { turnstileWid = turnstile.render('#turnstile-box', { sitekey: S.settings.turnstileSiteKey, theme: 'auto' }); } catch {}
+    });
   } else { box.classList.add('hidden'); }
-  $('#login-password').focus();
+  setTimeout(() => $('#login-password').focus(), 100);
 }
 
 async function showMain() {
@@ -97,18 +112,6 @@ async function loadConvs() {
 async function loadMessages() {
   if (!S.activeCid) { S.messages = []; return; }
   try { S.messages = await api('GET', `/api/conversations/${S.activeCid}/messages`); } catch { S.messages = []; }
-}
-
-function renderProviderBar() {
-  const bar = $('#provider-bar');
-  bar.innerHTML = `<select id="provider-select">
-    ${S.providers.length ? S.providers.map(p => `<option value="${p.id}" ${p.id===S.activePid?'selected':''}>${esc(p.name)}</option>`).join('') : '<option value="">未配置提供商</option>'}
-  </select>`;
-  $('#provider-select').addEventListener('change', async e => {
-    S.activePid = e.target.value || null;
-    await loadConvs();
-    renderAll();
-  });
 }
 
 function renderModelSelect() {
@@ -176,7 +179,6 @@ function renderMessages() {
 }
 
 function renderAll() {
-  renderProviderBar();
   renderModelSelect();
   renderConvList();
   renderMessages();
@@ -256,6 +258,7 @@ async function sendMsg() {
 function switchSettingsTab(tab) {
   $$('.settings-nav-item').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
   $$('.settings-panel').forEach(el => el.classList.toggle('hidden', el.id !== `panel-${tab}`));
+  if (tab === 'users') loadUsers();
 }
 
 function renderProviderForm(pid) {
@@ -479,10 +482,12 @@ async function saveSettings() {
 }
 
 async function doInit() {
+  const name = ($('#init-username')?.value || '').trim() || 'admin';
   const pw = $('#init-password').value.trim();
   if (pw.length < 4) { alert('密码至少 4 位'); return; }
   try {
     await api('POST', '/api/init', {
+      admin_name: name,
       password: pw,
       turnstile_site_key: $('#init-sitekey').value.trim(),
       turnstile_secret: $('#init-secret').value.trim()
@@ -495,10 +500,12 @@ async function doInit() {
 }
 
 async function doLogin() {
+  const username = ($('#login-username')?.value || '').trim();
   const pw = $('#login-password').value.trim();
+  if (!username) { alert('请输入用户名'); return; }
   if (!pw) { alert('请输入密码'); return; }
-  const body = { password: pw };
-  if (S.settings.turnstileSiteKey) {
+  const body = { username: username, password: pw };
+  if (S.settings.turnstileSiteKey && turnstileWid !== null) {
     const token = turnstile.getResponse(turnstileWid);
     if (!token) { alert('请完成人机验证'); return; }
     body.turnstile_token = token;
@@ -629,5 +636,55 @@ async function saveConvSettings() {
     renderAll();
   } catch(e) { alert(e.message); }
 }
+
+async function loadUsers() {
+  try {
+    const r = await api('GET', '/api/users');
+    renderUsers(r.users || []);
+  } catch (e) {
+    $('#user-list').innerHTML = `<div style="color:var(--danger-text);padding:8px;font-size:13px">加载失败: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderUsers(users) {
+  const list = $('#user-list');
+  list.innerHTML = users.map(u => `
+    <div class="provider-item">
+      <div class="pinfo">
+        <div class="pname">${esc(u.username)} ${u.is_admin ? '<span style="color:var(--brand);font-size:11px">管理员</span>' : ''}</div>
+        <div class="pdetail">创建于 ${new Date(u.created_at*1000).toLocaleString('zh-CN')}</div>
+      </div>
+      <div class="pactions">
+        <button class="paction-btn del" data-del="${u.id}" ${u.is_admin?'disabled':''}>删除</button>
+      </div>
+    </div>`).join('') || '<div style="color:var(--text3);font-size:13px;padding:12px 0;text-align:center">暂无用户</div>';
+
+  list.querySelectorAll('[data-del]').forEach(btn => {
+    btn.addEventListener('click', () => deleteUser(btn.dataset.del));
+  });
+}
+
+async function addUser() {
+  const name = $('#new-username').value.trim();
+  const pw = $('#new-user-password').value.trim();
+  if (!name || !pw) { alert('用户名和密码不能为空'); return; }
+  if (pw.length < 4) { alert('密码至少 4 位'); return; }
+  try {
+    await api('POST', '/api/users', { username: name, password: pw });
+    $('#new-username').value = '';
+    $('#new-user-password').value = '';
+    loadUsers();
+  } catch (e) { alert(e.message); }
+}
+
+async function deleteUser(uid) {
+  if (!confirm('确定删除此用户？此操作不可撤销。')) return;
+  try {
+    await api('DELETE', `/api/users/${uid}`);
+    loadUsers();
+  } catch (e) { alert(e.message); }
+}
+
+$('#btn-add-user')?.addEventListener('click', addUser);
 
 checkStatus();
