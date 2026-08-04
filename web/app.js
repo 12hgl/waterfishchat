@@ -33,7 +33,7 @@ async function api(method, path, body) {
 const S = {
   page: 'loading', providers: [], activePid: null,
   convs: [], activeCid: null, messages: [], settings: {}, streaming: false,
-  files: [], webSearch: false
+  files: [], webSearch: false, isAdmin: false, currentUsername: ''
 };
 
 function esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
@@ -58,6 +58,8 @@ async function checkStatus() {
     const s = await api('GET', '/api/status');
     if (!s.initialized) { showInit(s); return; }
     S.settings.turnstileSiteKey = s.turnstile_site_key || '';
+    S.isAdmin = s.is_admin || false;
+    S.currentUsername = s.username || '';
     S.providers = await api('GET', '/api/providers');
     if (S.providers.length && !S.activePid) S.activePid = S.providers[0].id;
     if (S.activePid) await loadConvs();
@@ -97,6 +99,8 @@ async function showMain() {
   S.page = 'main';
   document.querySelectorAll('.overlay').forEach(e => e.classList.add('hidden'));
   $('#app').style.display = 'flex';
+  $('#btn-open-settings').classList.toggle('hidden', !S.isAdmin);
+  $('#btn-open-users').classList.toggle('hidden', !S.isAdmin);
 }
 
 async function loadProviders() {
@@ -258,7 +262,6 @@ async function sendMsg() {
 function switchSettingsTab(tab) {
   $$('.settings-nav-item').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
   $$('.settings-panel').forEach(el => el.classList.toggle('hidden', el.id !== `panel-${tab}`));
-  if (tab === 'users') loadUsers();
 }
 
 function renderProviderForm(pid) {
@@ -458,6 +461,7 @@ async function openSettings() {
     $('#settings-search-key').value = s.web_search_api_key || '';
     $('#settings-querit-max').value = s.querit_max_results || 10;
     $('#settings-querit-time').value = s.querit_time_range || 'none';
+    $('#settings-user-models').value = s.user_models || '';
     toggleQueritOptions();
     switchSettingsTab('providers');
     renderProviderList();
@@ -475,7 +479,8 @@ async function saveSettings() {
       web_search_engine: $('#settings-search-engine').value,
       web_search_api_key: $('#settings-search-key').value.trim(),
       querit_max_results: parseInt($('#settings-querit-max').value) || 10,
-      querit_time_range: $('#settings-querit-time').value
+      querit_time_range: $('#settings-querit-time').value,
+      user_models: $('#settings-user-models').value.trim()
     });
     $('#settings-page').classList.add('hidden');
   } catch (e) { alert(e.message); }
@@ -511,7 +516,9 @@ async function doLogin() {
     body.turnstile_token = token;
   }
   try {
-    await api('POST', '/api/login', body);
+    const resp = await api('POST', '/api/login', body);
+    S.isAdmin = resp.is_admin || false;
+    S.currentUsername = resp.username || '';
     $('#login-overlay').classList.add('hidden');
     await loadProviders();
     if (S.providers.length && !S.activePid) S.activePid = S.providers[0].id;
@@ -651,7 +658,7 @@ function renderUsers(users) {
   list.innerHTML = users.map(u => `
     <div class="provider-item">
       <div class="pinfo">
-        <div class="pname">${esc(u.username)} ${u.is_admin ? '<span style="color:var(--brand);font-size:11px">管理员</span>' : ''}</div>
+        <div class="pname">${esc(u.username)} ${u.is_admin ? '<span style="color:var(--brand);font-size:11px">管理员</span>' : '<span style="color:var(--text3);font-size:11px">普通用户</span>'}</div>
         <div class="pdetail">创建于 ${new Date(u.created_at*1000).toLocaleString('zh-CN')}</div>
       </div>
       <div class="pactions">
@@ -664,6 +671,14 @@ function renderUsers(users) {
   });
 }
 
+function toggleAddUser() {
+  const form = $('#user-add-form');
+  const show = form.style.display === 'none';
+  form.style.display = show ? 'flex' : 'none';
+  $('#btn-add-user').style.display = show ? 'none' : '';
+  if (show) $('#new-username').focus();
+}
+
 async function addUser() {
   const name = $('#new-username').value.trim();
   const pw = $('#new-user-password').value.trim();
@@ -673,6 +688,7 @@ async function addUser() {
     await api('POST', '/api/users', { username: name, password: pw });
     $('#new-username').value = '';
     $('#new-user-password').value = '';
+    toggleAddUser();
     loadUsers();
   } catch (e) { alert(e.message); }
 }
@@ -685,6 +701,16 @@ async function deleteUser(uid) {
   } catch (e) { alert(e.message); }
 }
 
-$('#btn-add-user')?.addEventListener('click', addUser);
+function openUsers() {
+  loadUsers();
+  $('#user-add-form').style.display = 'none';
+  $('#btn-add-user').style.display = '';
+  $('#users-page').classList.remove('hidden');
+}
+
+$('#btn-open-users')?.addEventListener('click', openUsers);
+$('#btn-add-user')?.addEventListener('click', toggleAddUser);
+$('#btn-add-user-confirm')?.addEventListener('click', addUser);
+$('#btn-users-close')?.addEventListener('click', () => $('#users-page').classList.add('hidden'));
 
 checkStatus();

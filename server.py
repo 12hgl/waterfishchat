@@ -180,14 +180,20 @@ app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 @app.get("/api/status")
-def status():
+def status(request: Request):
     try:
         with use_db() as db:
             admin = db.execute("SELECT id FROM users WHERE is_admin=1 LIMIT 1").fetchone()
-        return {"initialized": admin is not None, "turnstile_site_key": cfg_get("turnstile_site_key") or ""}
+        initialized = admin is not None
     except:
         pw = cfg_get("admin_password_hash")
-        return {"initialized": pw is not None, "turnstile_site_key": cfg_get("turnstile_site_key") or ""}
+        initialized = pw is not None
+    resp = {"initialized": initialized, "turnstile_site_key": cfg_get("turnstile_site_key") or ""}
+    user = get_current_user(request)
+    if user:
+        resp["username"] = user["username"]
+        resp["is_admin"] = bool(user["is_admin"])
+    return resp
 
 @app.post("/api/init")
 async def init(request: Request):
@@ -273,7 +279,7 @@ async def login(request: Request):
     token = make_token()
     cfg_set(f"session_{token}", f"{time.time()}|{user['id']}")
     cleanup_sessions()
-    resp = JSONResponse({"ok": True, "username": user["username"]})
+    resp = JSONResponse({"ok": True, "username": user["username"], "is_admin": bool(user["is_admin"])})
     resp.set_cookie("session", token, httponly=True, max_age=86400, samesite="lax")
     return resp
 
@@ -325,9 +331,15 @@ def delete_user(uid: str, request: Request):
 @app.get("/api/providers")
 def get_providers(request: Request):
     if not check_session(request): raise HTTPException(401)
+    user = get_current_user(request)
     with use_db() as db:
         rows = db.execute("SELECT id, name, base_url, model, api_key FROM providers ORDER BY created_at").fetchall()
-        return [{"id": r["id"], "name": r["name"], "base_url": r["base_url"], "model": r["model"], "has_key": bool(r["api_key"])} for r in rows]
+        providers = [{"id": r["id"], "name": r["name"], "base_url": r["base_url"], "model": r["model"], "has_key": bool(r["api_key"])} for r in rows]
+    if user and not user["is_admin"]:
+        allowed = [m.strip() for m in (cfg_get("user_models") or "").split(",") if m.strip()]
+        if allowed:
+            providers = [p for p in providers if p["model"] in allowed]
+    return providers
 
 @app.post("/api/providers")
 async def add_provider(request: Request):
@@ -640,12 +652,13 @@ def get_settings(request: Request):
         "web_search_engine": cfg_get("web_search_engine") or "bing",
         "web_search_api_key": cfg_get("web_search_api_key") or "",
         "querit_max_results": int(cfg_get("querit_max_results") or 10),
-        "querit_time_range": cfg_get("querit_time_range") or "none"
+        "querit_time_range": cfg_get("querit_time_range") or "none",
+        "user_models": cfg_get("user_models") or ""
     }
 
 @app.post("/api/settings")
 async def save_settings(request: Request):
-    if not check_session(request): raise HTTPException(401)
+    check_admin(request)
     body = await request.json()
     if "turnstile_site_key" in body: cfg_set("turnstile_site_key", body["turnstile_site_key"])
     if "turnstile_secret" in body: cfg_set("turnstile_secret", body["turnstile_secret"])
@@ -658,6 +671,7 @@ async def save_settings(request: Request):
         t = max(1, min(120, int(body["idle_timeout"])))
         cfg_set("idle_timeout", str(t))
         Path("/tmp/idle_timeout_min").write_text(str(t))
+    if "user_models" in body: cfg_set("user_models", body["user_models"])
     return {"ok": True}
 
 @app.post("/api/fetch-models")

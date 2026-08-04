@@ -27,6 +27,10 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         设置
       </button>
+      <button class="btn-sidebar" id="btn-open-users">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        用户
+      </button>
       <button class="btn-sidebar btn-logout" id="btn-logout">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
         退出
@@ -112,10 +116,6 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         系统
       </div>
-      <div class="settings-nav-item" data-tab="users">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        用户
-      </div>
       <div class="settings-nav-item" data-tab="about">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
         关于
@@ -180,16 +180,10 @@
             </label>
           </label>
         </div>
-      </div>
-      <div class="settings-panel hidden" id="panel-users">
         <div class="settings-section">
-          <div class="settings-section-title">用户管理</div>
-          <div id="user-list"></div>
-          <div class="user-add">
-            <input type="text" id="new-username" placeholder="用户名">
-            <input type="password" id="new-user-password" placeholder="密码（至少4位）">
-            <button class="btn-primary" id="btn-add-user">添加用户</button>
-          </div>
+          <div class="settings-section-title">用户权限</div>
+          <label class="settings-label">普通用户可用模型（逗号分隔，留空 = 全部）</label>
+          <input type="text" id="settings-user-models" placeholder="如: gpt-4,claude-3-opus">
         </div>
       </div>
       <div class="settings-panel hidden" id="panel-about">
@@ -197,7 +191,7 @@
           <img src="icon.ico" width="48" height="48" alt="">
           <h3>水鱼 Chat</h3>
           <p>轻量私有 AI 聊天</p>
-          <p class="about-version">Version 1.8</p>
+          <p class="about-version">Version 1.9</p>
           <p class="about-link"><a href="https://github.com/12hgl/waterfishchat" target="_blank">github.com/12hgl/waterfishchat</a></p>
         </div>
       </div>
@@ -205,6 +199,35 @@
       <div class="settings-actions">
         <button class="btn-secondary" id="btn-settings-close">返回</button>
         <button class="btn-primary" id="btn-settings-save">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="users-page">
+  <div class="settings-container">
+    <div class="settings-nav" style="display:flex;align-items:center;padding:0 16px;height:48px;font-size:16px;font-weight:600;color:var(--text1);border-bottom:1px solid var(--line)">
+      用户管理
+    </div>
+    <div class="settings-body">
+      <div class="settings-panels-wrap">
+        <div class="settings-panel" style="display:block;">
+          <div class="settings-section">
+            <div id="user-list"></div>
+            <div class="user-add" id="user-add-form" style="display:none;margin-top:12px;">
+              <input type="text" id="new-username" placeholder="用户名">
+              <input type="password" id="new-user-password" placeholder="密码（至少4位）">
+              <button class="btn-primary btn-sm" id="btn-add-user-confirm">确认添加</button>
+            </div>
+            <button class="btn-add-item" id="btn-add-user" style="margin-top:12px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              添加用户
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="settings-actions">
+        <button class="btn-secondary" id="btn-users-close">返回</button>
       </div>
     </div>
   </div>
