@@ -159,7 +159,7 @@ function renderModelSelect() {
     } else {
       S.activeModel = newModel;
     }
-  }, { once: true });
+  });
 }
 
 function renderConvList() {
@@ -608,7 +608,7 @@ $('#btn-toggle-sidebar').addEventListener('click', () => {
     localStorage.setItem('sb-collapsed', document.getElementById('app').classList.contains('sidebar-collapsed'));
   }
 });
-$('#btn-add-provider').addEventListener('click', () => renderProviderForm(null));
+$('#btn-add-provider')?.addEventListener('click', () => renderProviderForm(null));
 
 function addFiles(fs) {
   for (const f of fs) {
