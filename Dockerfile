@@ -1,6 +1,6 @@
 FROM python:3.11-alpine
 
-RUN apk add --no-cache nginx
+RUN apk add --no-cache nginx procps
 
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt

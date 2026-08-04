@@ -10,6 +10,9 @@ DATA_DIR = Path("/data")
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "waterfish.db"
 
+import sys
+print(f"[server] Starting, DB={DB_PATH}, pid={os.getpid()}", flush=True)
+
 @contextmanager
 def use_db():
     db = sqlite3.connect(str(DB_PATH))
