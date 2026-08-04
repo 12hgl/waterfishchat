@@ -115,6 +115,7 @@ function renderConvList() {
   list.innerHTML = S.convs.length
     ? S.convs.map(c => `<div class="conv-item${c.id===S.activeCid?' active':''}" data-cid="${c.id}">
         <span class="conv-name">${esc(c.title)}</span>
+        ${c.system_prompt ? '<span class="sys-prompt-dot" title="已设置系统提示词"></span>' : ''}
         <button class="conv-del" data-cid="${c.id}">&times;</button>
       </div>`).join('')
     : '<div style="color:var(--text3);font-size:12px;padding:12px;text-align:center">暂无对话</div>';
@@ -135,13 +136,20 @@ function renderConvList() {
 
 function renderMessages() {
   const c = $('#messages');
+  const conv = S.convs.find(x => x.id === S.activeCid);
+  $('#chat-title').textContent = conv?.title || '水鱼 Chat';
+  const settingsBtn = $('#btn-conv-settings');
+  if (S.activeCid && conv) {
+    settingsBtn.classList.remove('hidden');
+    if (conv.system_prompt) settingsBtn.style.color = 'var(--brand)';
+    else settingsBtn.style.color = '';
+  } else {
+    settingsBtn.classList.add('hidden');
+  }
   if (!S.activeCid || !S.messages.length) {
     c.innerHTML = `<div class="empty-hint"><img class="fish" src="icon.ico" width="48" height="48" alt="">水鱼 Chat · 选择一个对话开始</div>`;
-    $('#chat-title').textContent = '水鱼 Chat';
     return;
   }
-  const conv = S.convs.find(x => x.id === S.activeCid);
-  $('#chat-title').textContent = conv?.title || '对话';
 
   let html = S.messages.filter(m => m.role !== 'system').map(m => {
     const cls = m.role === 'user' ? 'user' : (m.error ? 'error' : 'assistant');
@@ -400,7 +408,14 @@ $('#btn-open-settings').addEventListener('click', openSettings);
 $('#btn-settings-save').addEventListener('click', saveSettings);
 $('#btn-settings-close').addEventListener('click', () => $('#settings-page').classList.add('hidden'));
 $('#btn-logout').addEventListener('click', doLogout);
-$('#btn-toggle-sidebar').addEventListener('click', () => $('#sidebar').classList.toggle('open'));
+$('#btn-toggle-sidebar').addEventListener('click', () => {
+  if (window.innerWidth <= 640) {
+    $('#sidebar').classList.toggle('open');
+  } else {
+    document.getElementById('app').classList.toggle('sidebar-collapsed');
+    localStorage.setItem('sb-collapsed', document.getElementById('app').classList.contains('sidebar-collapsed'));
+  }
+});
 $('#btn-add-provider').addEventListener('click', () => renderProviderForm(null));
 
 $$('.settings-nav-item').forEach(el => {
@@ -416,5 +431,35 @@ $('#user-input').addEventListener('input', function() {
 $('#login-password').addEventListener('keydown', e => {
   if (e.key === 'Enter') doLogin();
 });
+
+if (localStorage.getItem('sb-collapsed') === 'true') {
+  document.getElementById('app').classList.add('sidebar-collapsed');
+}
+
+$('#btn-conv-settings').addEventListener('click', openConvSettings);
+$('#btn-conv-settings-cancel').addEventListener('click', () => $('#conv-settings-overlay').classList.add('hidden'));
+$('#btn-conv-settings-save').addEventListener('click', saveConvSettings);
+
+function openConvSettings() {
+  if (!S.activeCid) return;
+  const conv = S.convs.find(c => c.id === S.activeCid);
+  $('#conv-settings-title').value = conv?.title || '';
+  $('#conv-settings-prompt').value = conv?.system_prompt || '';
+  $('#conv-settings-overlay').classList.remove('hidden');
+  $('#conv-settings-title').focus();
+}
+
+async function saveConvSettings() {
+  const title = $('#conv-settings-title').value.trim();
+  const prompt = $('#conv-settings-prompt').value.trim();
+  if (!title) { alert('标题不能为空'); return; }
+  try {
+    await api('PUT', `/api/conversations/${S.activeCid}`, { title, system_prompt: prompt });
+    const conv = S.convs.find(c => c.id === S.activeCid);
+    if (conv) { conv.title = title; conv.system_prompt = prompt; }
+    $('#conv-settings-overlay').classList.add('hidden');
+    renderAll();
+  } catch(e) { alert(e.message); }
+}
 
 checkStatus();

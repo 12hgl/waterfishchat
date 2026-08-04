@@ -59,6 +59,15 @@ def init_db():
 
 init_db()
 
+def migrate():
+    with use_db() as db:
+        try:
+            db.execute("ALTER TABLE conversations ADD COLUMN system_prompt TEXT DEFAULT ''")
+        except:
+            pass
+
+migrate()
+
 def cfg_get(key):
     with use_db() as db:
         row = db.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
@@ -223,9 +232,9 @@ async def update_provider(pid: str, request: Request):
 def get_conversations(request: Request, provider_id: str = ""):
     if not check_session(request): raise HTTPException(401)
     with use_db() as db:
-        rows = db.execute("SELECT id, title, created_at FROM conversations WHERE provider_id=? ORDER BY created_at DESC",
+        rows = db.execute("SELECT id, title, system_prompt, created_at FROM conversations WHERE provider_id=? ORDER BY created_at DESC",
                           (provider_id,)).fetchall()
-        return [{"id": r["id"], "title": r["title"], "created_at": r["created_at"]} for r in rows]
+        return [{"id": r["id"], "title": r["title"], "system_prompt": r["system_prompt"] or "", "created_at": r["created_at"]} for r in rows]
 
 @app.post("/api/conversations")
 async def create_conversation(request: Request):
@@ -233,9 +242,20 @@ async def create_conversation(request: Request):
     body = await request.json()
     cid = secrets.token_hex(8)
     with use_db() as db:
-        db.execute("INSERT INTO conversations (id, provider_id, title) VALUES (?,?,?)",
-                   (cid, body["provider_id"], body.get("title", "新对话")))
-    return {"id": cid, "title": body.get("title", "新对话"), "ok": True}
+        db.execute("INSERT INTO conversations (id, provider_id, title, system_prompt) VALUES (?,?,?,?)",
+                   (cid, body["provider_id"], body.get("title", "新对话"), body.get("system_prompt", "")))
+    return {"id": cid, "title": body.get("title", "新对话"), "system_prompt": body.get("system_prompt", ""), "ok": True}
+
+@app.put("/api/conversations/{cid}")
+async def update_conversation(cid: str, request: Request):
+    if not check_session(request): raise HTTPException(401)
+    body = await request.json()
+    with use_db() as db:
+        if "title" in body:
+            db.execute("UPDATE conversations SET title=? WHERE id=?", (body["title"], cid))
+        if "system_prompt" in body:
+            db.execute("UPDATE conversations SET system_prompt=? WHERE id=?", (body["system_prompt"], cid))
+    return {"ok": True}
 
 @app.delete("/api/conversations/{cid}")
 def delete_conversation(cid: str, request: Request):
@@ -275,6 +295,8 @@ async def chat_in_conversation(cid: str, request: Request):
         history = db.execute("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY created_at", (cid,)).fetchall()
 
     messages = [{"role": r["role"], "content": r["content"]} for r in history]
+    if conv["system_prompt"]:
+        messages.insert(0, {"role": "system", "content": conv["system_prompt"]})
 
     try:
         async with httpx.AsyncClient(timeout=120) as client:

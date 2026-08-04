@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>水鱼 Chat</title>
-<link rel="icon" href="https://waterfish.cc.cd/image/icon.ico">
+<link rel="icon" href="icon.ico">
 <link rel="stylesheet" href="style.css">
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 </head>
@@ -41,6 +41,9 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
       <span class="chat-title" id="chat-title">水鱼 Chat</span>
+      <button class="btn-conv-settings hidden" id="btn-conv-settings" title="对话设置">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
     </header>
     <div class="messages" id="messages"></div>
     <div class="input-bar">
@@ -142,6 +145,20 @@
           <p class="about-link"><a href="https://github.com/12hgl/waterfishchat" target="_blank">github.com/12hgl/waterfishchat</a></p>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="conv-settings-overlay">
+  <div class="dialog">
+    <h3>对话设置</h3>
+    <label>标题</label>
+    <input type="text" id="conv-settings-title" placeholder="对话标题">
+    <label>系统提示词</label>
+    <textarea id="conv-settings-prompt" rows="4" placeholder="对 AI 的角色设定，如：你是一个专业的技术顾问..."></textarea>
+    <div class="dialog-actions">
+      <button class="btn-secondary" id="btn-conv-settings-cancel">取消</button>
+      <button class="btn-primary" id="btn-conv-settings-save">保存</button>
     </div>
   </div>
 </div>
