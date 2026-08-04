@@ -24,19 +24,27 @@ function ensureTurnstile(cb) {
   }, 100);
 }
 
+const API_TIMEOUT = 8000;
+
 async function api(method, path, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' };
-  if (body) opts.body = JSON.stringify(body);
-  const resp = await fetch(path, opts);
-  if (resp.status === 401) {
-    if (S.page === 'main') showLogin();
-    throw new Error('Unauthorized');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT);
+  try {
+    const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', signal: controller.signal };
+    if (body) opts.body = JSON.stringify(body);
+    const resp = await fetch(path, opts);
+    if (resp.status === 401) {
+      if (S.page === 'main') showLogin();
+      throw new Error('Unauthorized');
+    }
+    if (!resp.ok) {
+      const e = await resp.json().catch(() => ({}));
+      throw new Error(e.detail || `Error ${resp.status}`);
+    }
+    return resp.json();
+  } finally {
+    clearTimeout(timer);
   }
-  if (!resp.ok) {
-    const e = await resp.json().catch(() => ({}));
-    throw new Error(e.detail || `Error ${resp.status}`);
-  }
-  return resp.json();
 }
 
 const S = {
@@ -971,7 +979,8 @@ async function users_load() {
     const r = await api('GET', '/api/users');
     users_renderList(r.users || []);
   } catch (e) {
-    list.innerHTML = `<div class="usr-error">加载失败: ${esc(e.message)}</div>`;
+    const msg = e.name === 'AbortError' ? '请求超时，请检查网络连接后刷新重试' : e.message;
+    list.innerHTML = `<div class="usr-error">加载失败: ${esc(msg)}</div>`;
   }
 }
 
