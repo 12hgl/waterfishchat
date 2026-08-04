@@ -39,6 +39,31 @@ def normalize_base_url(raw: str) -> str:
         return url
     return url + "/v1"
 
+def is_lan_ip(url: str) -> bool:
+    """Check if the URL points to a LAN/private IP (Docker-unreachable)."""
+    import re
+    m = re.search(r'://([^/:]+)', url)
+    if not m:
+        return False
+    host = m.group(1)
+    # Skip localhost / host.docker.internal / 127.x
+    if host in ('localhost', 'host.docker.internal', '127.0.0.1'):
+        return False
+    parts = host.split('.')
+    if len(parts) != 4:
+        return False
+    try:
+        a, b = int(parts[0]), int(parts[1])
+    except ValueError:
+        return False
+    if a == 10:
+        return True
+    if a == 172 and 16 <= b <= 31:
+        return True
+    if a == 192 and b == 168:
+        return True
+    return False
+
 def init_db():
     with use_db() as db:
         db.executescript("""
@@ -740,8 +765,8 @@ async def fetch_models_from_url(request: Request):
             except Exception:
                 detail = "(could not read response body)"
             hint = ""
-            if "192.168." in base or "10." in base.split("/")[2].split(".")[0] if "/" in base else False:
-                hint = " | Docker 容器可能无法访问局域网地址，尝试使用 host.docker.internal 代替 IP"
+            if is_lan_ip(base):
+                hint = " | Docker 容器可能无法访问局域网地址，使用 host.docker.internal 代替 IP"
             raise HTTPException(502, f"Remote API returned {resp.status_code}: {detail}{hint}")
         data = resp.json()
         model_list = []
@@ -763,8 +788,10 @@ async def fetch_models_from_url(request: Request):
         raise
     except Exception as e:
         msg = str(e)
-        if "192.168." in base or "172." in base or "10." in base:
-            msg += " | Docker 容器可能无法访问局域网地址，尝试使用 host.docker.internal 代替 IP"
+        if is_lan_ip(base):
+            msg += " | Docker 容器无法访问局域网地址，使用 host.docker.internal 代替 IP"
+        elif "connection" in msg.lower() or "connect" in msg.lower():
+            msg += " | 无法连接到 API 地址，请检查地址是否正确、API 服务是否在运行、网络是否可达"
         raise HTTPException(502, msg[:600])
 
 @app.post("/api/providers/{pid}/fetch-models")
@@ -795,8 +822,10 @@ async def fetch_models(pid: str, request: Request):
                     last_err = str(e)
             else:
                 hint = ""
-                if any(x in base for x in ("192.168.", "172.", "10.")):
-                    hint = " | Docker 容器可能无法访问局域网地址，尝试使用 host.docker.internal 代替 IP"
+                if is_lan_ip(base):
+                    hint = " | Docker 容器无法访问局域网地址，使用 host.docker.internal 代替 IP"
+                elif "connection" in str(last_err).lower() or "connect" in str(last_err).lower():
+                    hint = " | 无法连接到 API 地址，请检查地址是否正确、API 服务是否在运行、网络是否可达"
                 raise HTTPException(502, f"Failed to fetch models: {last_err}{hint}")
         data = resp.json()
         model_list = []
@@ -818,8 +847,10 @@ async def fetch_models(pid: str, request: Request):
         raise
     except Exception as e:
         msg = str(e)
-        if any(x in base for x in ("192.168.", "172.", "10.")):
-            msg += " | Docker 容器可能无法访问局域网地址，尝试使用 host.docker.internal 代替 IP"
+        if is_lan_ip(base):
+            msg += " | Docker 容器无法访问局域网地址，使用 host.docker.internal 代替 IP"
+        elif "connection" in msg.lower() or "connect" in msg.lower():
+            msg += " | 无法连接到 API 地址，请检查地址是否正确、API 服务是否在运行、网络是否可达"
         raise HTTPException(502, msg[:600])
 
 if __name__ == "__main__":
