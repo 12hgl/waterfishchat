@@ -35,6 +35,7 @@ async function api(method, path, body) {
     const resp = await fetch(path, opts);
     if (resp.status === 401) {
       if (S.page === 'main') showLogin();
+      else if (S.page === 'settings' || S.page === 'users') window.location.href = 'index.html';
       throw new Error('Unauthorized');
     }
     if (!resp.ok) {
@@ -932,11 +933,10 @@ async function initSettings() {
   saveBtn.addEventListener('click', settings_saveAll);
   document.body.appendChild(saveBtn);
 
-  // Check auth — show clear error instead of silent redirect
+  // Check auth — redirect to index if not admin
   try {
     const s = await api('GET', '/api/status');
-    if (!s.initialized) { setMainError('系统未初始化，请先 <a href="index.html">完成初始化</a> 后再访问设置'); return; }
-    if (!s.is_admin) { setMainError('需要管理员权限，请 <a href="index.html">返回首页</a>'); return; }
+    if (!s.initialized || !s.is_admin) { window.location.href = 'index.html'; return; }
   } catch (e) {
     setMainError('连接服务器失败（' + esc(e.message) + '），请 <a href="index.html">刷新重试</a>');
     return;
@@ -1025,14 +1025,10 @@ async function initUsers() {
   $('#btn-add-user-confirm')?.addEventListener('click', users_add);
   $('#btn-add-user-cancel')?.addEventListener('click', users_toggleAdd);
 
-  // Check auth — show error instead of silent redirect
+  // Check auth — redirect to index if not admin
   try {
     const s = await api('GET', '/api/status');
-    if (!s.initialized || !s.is_admin) {
-      const list = $('#user-list');
-      if (list) list.innerHTML = '<div class="usr-error">无权限访问，请 <a href="index.html">返回首页</a></div>';
-      return;
-    }
+    if (!s.initialized || !s.is_admin) { window.location.href = 'index.html'; return; }
   } catch (e) {
     const list = $('#user-list');
     if (list) list.innerHTML = '<div class="usr-error">连接失败: ' + esc(e.message) + '，请 <a href="index.html">刷新重试</a></div>';
