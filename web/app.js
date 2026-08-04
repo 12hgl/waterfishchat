@@ -31,7 +31,7 @@ async function api(method, path, body) {
 }
 
 const S = {
-  page: 'loading', providers: [], activePid: null,
+  page: 'loading', providers: [], activePid: null, activeModel: '',
   convs: [], activeCid: null, messages: [], settings: {}, streaming: false,
   files: [], webSearch: false, isAdmin: false, currentUsername: ''
 };
@@ -61,7 +61,10 @@ async function checkStatus() {
     S.isAdmin = s.is_admin || false;
     S.currentUsername = s.username || '';
     S.providers = await api('GET', '/api/providers');
-    if (S.providers.length && !S.activePid) S.activePid = S.providers[0].id;
+    if (S.providers.length && !S.activePid) {
+      S.activePid = S.providers[0].id;
+      S.activeModel = S.providers[0].models?.[0] || S.providers[0].model || '';
+    }
     if (S.activePid) await loadConvs();
     showMain();
     renderAll();
@@ -82,7 +85,7 @@ function showLogin() {
   S.page = 'login';
   document.querySelectorAll('.overlay').forEach(e => e.classList.add('hidden'));
   $('#app').style.display = 'none';
-  S.activePid = null; S.activeCid = null;
+  S.activePid = null; S.activeModel = ''; S.activeCid = null;
   $('#login-overlay').classList.remove('hidden');
   const box = $('#turnstile-box');
   if (S.settings.turnstileSiteKey) {
@@ -120,10 +123,19 @@ async function loadMessages() {
 
 function renderModelSelect() {
   const sel = $('#chat-model-select');
-  sel.innerHTML = S.providers.map(p => `<option value="${p.id}" ${p.id===S.activePid?'selected':''}>${esc(p.name)} · ${esc(p.model)}</option>`).join('');
-  if (!S.providers.length) sel.innerHTML = '<option value="">无提供商</option>';
+  let options = [];
+  S.providers.forEach(p => {
+    (p.models || [p.model].filter(Boolean)).forEach(m => {
+      const val = `${p.id}|${m}`;
+      const selAttr = (p.id === S.activePid && m === S.activeModel) ? ' selected' : '';
+      options.push(`<option value="${val}"${selAttr}>${esc(p.name)} · ${esc(m)}</option>`);
+    });
+  });
+  sel.innerHTML = options.length ? options.join('') : '<option value="">无提供商</option>';
   sel.addEventListener('change', async e => {
-    S.activePid = e.target.value || null;
+    const parts = (e.target.value || '').split('|');
+    S.activePid = parts[0] || null;
+    S.activeModel = parts[1] || '';
     await loadConvs();
     renderAll();
   }, { once: true });
@@ -235,6 +247,7 @@ async function sendMsg() {
 
   try {
     const body = { content: text };
+    if (S.activeModel) body.model = S.activeModel;
     if (S.webSearch) body.web_search = true;
     if (msg.files?.length) body.files = msg.files.map(f => f.name);
     if (pendingFiles.length) {
@@ -271,12 +284,12 @@ function renderProviderForm(pid) {
       <label>名称 <span style="color:var(--danger-text)">*</span></label>
       <input type="text" id="pf-name" placeholder="如：DeepSeek">
       <label>API 地址 <span style="color:var(--danger-text)">*</span></label>
-      <input type="text" id="pf-url" placeholder="https://api.deepseek.com/v1">
+      <input type="text" id="pf-url" placeholder="https://api.deepseek.com">
       <label>API Key <span style="color:var(--danger-text)">*</span></label>
       <input type="password" id="pf-key" placeholder="sk-...">
-      <label>模型 <span style="color:var(--danger-text)">*</span></label>
+      <label>模型列表 <span style="color:var(--danger-text)">*</span></label>
       <div class="pf-field" style="display:flex;gap:8px;align-items:center">
-        <input type="text" id="pf-model" placeholder="deepseek-chat" style="flex:1">
+        <input type="text" id="pf-models" placeholder="deepseek-chat, deepseek-reasoner（逗号分隔）" style="flex:1">
         <button type="button" class="btn-secondary" id="btn-pf-fetch">获取</button>
       </div>
       <div class="provider-form-actions">
@@ -290,6 +303,7 @@ function renderProviderForm(pid) {
   } else {
     const p = S.providers.find(x => x.id === pid);
     if (!p) return;
+    const allModels = (p.models && p.models.length) ? p.models.join(', ') : (p.model || '');
     area.innerHTML = `<div class="provider-form">
       <label>名称 <span style="color:var(--danger-text)">*</span></label>
       <input type="text" id="pf-name" value="${esc(p.name)}">
@@ -297,9 +311,9 @@ function renderProviderForm(pid) {
       <input type="text" id="pf-url" value="${esc(p.base_url)}">
       <label>API Key</label>
       <input type="password" id="pf-key" placeholder="留空则不修改">
-      <label>模型 <span style="color:var(--danger-text)">*</span></label>
+      <label>模型列表 <span style="color:var(--danger-text)">*</span></label>
       <div class="pf-field" style="display:flex;gap:8px;align-items:center">
-        <input type="text" id="pf-model" value="${esc(p.model)}" style="flex:1">
+        <input type="text" id="pf-models" value="${esc(allModels)}" placeholder="model1, model2（逗号分隔）" style="flex:1">
         <button type="button" class="btn-secondary" id="btn-pf-fetch">获取</button>
       </div>
       <div class="provider-form-actions">
@@ -316,25 +330,29 @@ function renderProviderForm(pid) {
 }
 
 async function saveProviderForm(pid) {
+  const modelsRaw = $('#pf-models').value.trim();
+  const modelList = modelsRaw ? modelsRaw.split(',').map(m => m.trim()).filter(Boolean) : [];
   const body = {
     name: $('#pf-name').value.trim(),
     base_url: $('#pf-url').value.trim(),
-    model: $('#pf-model').value.trim()
+    models: modelList.join(','),
+    model: modelList[0] || ''
   };
   const key = $('#pf-key').value.trim();
   if (key) body.api_key = key;
-  if (!body.name || !body.base_url || !body.model || (!pid && !key)) {
-    alert('名称、API 地址、模型、API Key 均为必填'); return;
+  if (!body.name || !body.base_url || !body.models || (!pid && !key)) {
+    alert('名称、API 地址、模型列表、API Key 均为必填'); return;
   }
   try {
     if (pid) { await api('PUT', `/api/providers/${pid}`, body); }
     else {
       const r = await api('POST', '/api/providers', body);
       S.activePid = r.id;
+      S.activeModel = modelList[0] || '';
     }
     $('#provider-form-area').innerHTML = '';
     await loadProviders();
-    if (!S.activePid && S.providers.length) S.activePid = S.providers[0].id;
+    if (!S.activePid && S.providers.length) { S.activePid = S.providers[0].id; S.activeModel = S.providers[0].models?.[0] || ''; }
     if (S.activePid) await loadConvs();
     renderProviderList();
     renderAll();
@@ -348,6 +366,7 @@ async function deleteProviderInline(pid) {
     S.providers = S.providers.filter(p => p.id !== pid);
     if (S.activePid === pid) {
       S.activePid = S.providers[0]?.id || null;
+      S.activeModel = S.providers[0]?.models?.[0] || '';
       S.activeCid = null; S.messages = [];
       if (S.activePid) await loadConvs();
     }
@@ -372,7 +391,7 @@ async function fetchProviderModels(pid) {
     const r = await api('POST', `/api/providers/${pid}/fetch-models`);
     const models = r.models || [];
     if (!models.length) { alert('未获取到模型列表'); return; }
-    const modelInput = $('#pf-model');
+    const modelInput = $('#pf-models');
     const modelWrap = modelInput.closest('.pf-field') || modelInput.parentElement;
     let picker = document.getElementById('pf-model-picker');
     if (!picker) {
@@ -381,11 +400,21 @@ async function fetchProviderModels(pid) {
       picker.className = 'model-picker';
       modelWrap.appendChild(picker);
     }
-    picker.innerHTML = models.map(m => `<div class="model-picker-item" data-model="${esc(m.id)}">${esc(m.id)}</div>`).join('');
+    const current = modelInput.value.split(',').map(s => s.trim()).filter(Boolean);
+    picker.innerHTML = `<div style="padding:4px 8px;font-size:12px;color:var(--text2);border-bottom:1px solid var(--border-color);margin-bottom:4px">点击添加 / 点击已选移除 | <a href="#" onclick="document.querySelectorAll('.model-picker-item.sel').forEach(e=>e.click());return false" style="color:var(--primary)">全选</a></div>`
+      + models.map(m => {
+        const sel = current.includes(m.id) ? ' sel' : '';
+        return `<div class="model-picker-item${sel}" data-model="${esc(m.id)}">${current.includes(m.id) ? '✓ ' : ''}${esc(m.id)}</div>`;
+      }).join('');
     picker.querySelectorAll('.model-picker-item').forEach(el => {
       el.addEventListener('click', () => {
-        modelInput.value = el.dataset.model;
-        picker.remove();
+        const parts = modelInput.value.split(',').map(s => s.trim()).filter(Boolean);
+        const idx = parts.indexOf(el.dataset.model);
+        if (idx >= 0) { parts.splice(idx, 1); }
+        else { parts.push(el.dataset.model); }
+        modelInput.value = parts.join(', ');
+        el.classList.toggle('sel');
+        el.textContent = (el.classList.contains('sel') ? '✓ ' : '') + el.dataset.model;
       });
     });
   } catch (e) {
@@ -405,7 +434,7 @@ async function fetchModelsFromUrl() {
     const r = await api('POST', '/api/fetch-models', { base_url: base, api_key: key });
     const models = r.models || [];
     if (!models.length) { alert('未获取到模型列表'); return; }
-    const modelInput = $('#pf-model');
+    const modelInput = $('#pf-models');
     const modelWrap = modelInput.closest('.pf-field') || modelInput.parentElement;
     let picker = document.getElementById('pf-model-picker');
     if (!picker) {
@@ -414,11 +443,21 @@ async function fetchModelsFromUrl() {
       picker.className = 'model-picker';
       modelWrap.appendChild(picker);
     }
-    picker.innerHTML = models.map(m => `<div class="model-picker-item" data-model="${esc(m.id)}">${esc(m.id)}</div>`).join('');
+    const current = modelInput.value.split(',').map(s => s.trim()).filter(Boolean);
+    picker.innerHTML = `<div style="padding:4px 8px;font-size:12px;color:var(--text2);border-bottom:1px solid var(--border-color);margin-bottom:4px">点击添加 / 点击已选移除 | <a href="#" onclick="document.querySelectorAll('.model-picker-item.sel').forEach(e=>e.click());return false" style="color:var(--primary)">全选</a></div>`
+      + models.map(m => {
+        const sel = current.includes(m.id) ? ' sel' : '';
+        return `<div class="model-picker-item${sel}" data-model="${esc(m.id)}">${current.includes(m.id) ? '✓ ' : ''}${esc(m.id)}</div>`;
+      }).join('');
     picker.querySelectorAll('.model-picker-item').forEach(el => {
       el.addEventListener('click', () => {
-        modelInput.value = el.dataset.model;
-        picker.remove();
+        const parts = modelInput.value.split(',').map(s => s.trim()).filter(Boolean);
+        const idx = parts.indexOf(el.dataset.model);
+        if (idx >= 0) { parts.splice(idx, 1); }
+        else { parts.push(el.dataset.model); }
+        modelInput.value = parts.join(', ');
+        el.classList.toggle('sel');
+        el.textContent = (el.classList.contains('sel') ? '✓ ' : '') + el.dataset.model;
       });
     });
   } catch (e) {
@@ -434,7 +473,7 @@ function renderProviderList() {
     <div class="provider-item">
       <div class="pinfo">
         <div class="pname">${esc(p.name)}</div>
-        <div class="pdetail">${esc(p.model)} · ${esc(p.base_url)}</div>
+        <div class="pdetail">${esc((p.models || [p.model]).filter(Boolean).join(', ') || '-')} · ${esc(p.base_url)}</div>
       </div>
       <div class="pactions">
         <button class="paction-btn" data-edit="${p.id}">编辑</button>
@@ -521,7 +560,7 @@ async function doLogin() {
     S.currentUsername = resp.username || '';
     $('#login-overlay').classList.add('hidden');
     await loadProviders();
-    if (S.providers.length && !S.activePid) S.activePid = S.providers[0].id;
+    if (S.providers.length && !S.activePid) { S.activePid = S.providers[0].id; S.activeModel = S.providers[0].models?.[0] || ''; }
     if (S.activePid) await loadConvs();
     showMain();
     renderAll();

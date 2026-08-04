@@ -199,6 +199,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 .model-picker-item{padding:6px 10px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border)}
 .model-picker-item:last-child{border-bottom:none}
 .model-picker-item:hover{background:var(--brand);color:#fff}
+.model-picker-item.sel{background:var(--brand);color:#fff}
 
 @media(max-width:640px){
   .sidebar{display:none;position:fixed;z-index:100;height:100vh;width:280px;box-shadow:4px 0 20px rgba(0,0,0,.5)}

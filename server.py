@@ -30,6 +30,15 @@ def use_db():
     finally:
         db.close()
 
+def normalize_base_url(raw: str) -> str:
+    """Ensure base_url ends with /v1 for OpenAI-compatible APIs.
+    If user enters https://api.example.com, auto-append /v1.
+    If already ends with /v1 or /v1/, return as-is (rstripped)."""
+    url = raw.strip().rstrip("/")
+    if url.endswith("/v1"):
+        return url
+    return url + "/v1"
+
 def init_db():
     with use_db() as db:
         db.executescript("""
@@ -43,6 +52,7 @@ def init_db():
                 base_url TEXT NOT NULL,
                 api_key TEXT NOT NULL DEFAULT '',
                 model TEXT NOT NULL DEFAULT '',
+                models TEXT NOT NULL DEFAULT '',
                 created_at REAL DEFAULT (strftime('%s','now'))
             );
             CREATE TABLE IF NOT EXISTS conversations (
@@ -71,6 +81,15 @@ def init_db():
         """)
 
 init_db()
+
+# Migration: add models column and migrate existing model values
+with use_db() as db:
+    cols = [r["name"] for r in db.execute("PRAGMA table_info(providers)").fetchall()]
+    if "models" not in cols:
+        db.execute("ALTER TABLE providers ADD COLUMN models TEXT NOT NULL DEFAULT ''")
+        db.execute("UPDATE providers SET models = model WHERE model != ''")
+        db.commit()
+        print("[server] Migrated providers: added models column", flush=True)
 
 def migrate():
     with use_db() as db:
@@ -333,12 +352,20 @@ def get_providers(request: Request):
     if not check_session(request): raise HTTPException(401)
     user = get_current_user(request)
     with use_db() as db:
-        rows = db.execute("SELECT id, name, base_url, model, api_key FROM providers ORDER BY created_at").fetchall()
-        providers = [{"id": r["id"], "name": r["name"], "base_url": r["base_url"], "model": r["model"], "has_key": bool(r["api_key"])} for r in rows]
+        rows = db.execute("SELECT id, name, base_url, model, models, api_key FROM providers ORDER BY created_at").fetchall()
+        providers = []
+        for r in rows:
+            all_models = [m.strip() for m in (r["models"] or "").split(",") if m.strip()]
+            providers.append({
+                "id": r["id"], "name": r["name"], "base_url": r["base_url"],
+                "model": all_models[0] if all_models else "",
+                "models": all_models,
+                "has_key": bool(r["api_key"])
+            })
     if user and not user["is_admin"]:
         allowed = [m.strip() for m in (cfg_get("user_models") or "").split(",") if m.strip()]
         if allowed:
-            providers = [p for p in providers if p["model"] in allowed]
+            providers = [p for p in providers if any(m in allowed for m in p["models"])]
     return providers
 
 @app.post("/api/providers")
@@ -346,9 +373,13 @@ async def add_provider(request: Request):
     if not check_session(request): raise HTTPException(401)
     body = await request.json()
     pid = secrets.token_hex(6)
+    models = body.get("models", body.get("model", ""))
+    if isinstance(models, list):
+        models = ",".join(models)
     with use_db() as db:
-        db.execute("INSERT INTO providers (id, name, base_url, api_key, model) VALUES (?,?,?,?,?)",
-                   (pid, body["name"], body["base_url"], body.get("api_key",""), body["model"]))
+        db.execute("INSERT INTO providers (id, name, base_url, api_key, model, models) VALUES (?,?,?,?,?,?)",
+                   (pid, body["name"], body["base_url"], body.get("api_key",""),
+                    body.get("model", (models.split(",")[0] if models else "")), models))
     return {"id": pid, "ok": True}
 
 @app.delete("/api/providers/{pid}")
@@ -365,9 +396,21 @@ async def update_provider(pid: str, request: Request):
     with use_db() as db:
         existing = db.execute("SELECT * FROM providers WHERE id=?", (pid,)).fetchone()
         if not existing: raise HTTPException(404)
-        db.execute("UPDATE providers SET name=?, base_url=?, model=? WHERE id=?",
-                   (body.get("name", existing["name"]), body.get("base_url", existing["base_url"]),
-                    body.get("model", existing["model"]), pid))
+        name = body.get("name", existing["name"])
+        burl = body.get("base_url", existing["base_url"])
+        if "models" in body:
+            models_raw = body["models"]
+            if isinstance(models_raw, list):
+                models_raw = ",".join(models_raw)
+            model = models_raw.split(",")[0].strip() if models_raw else ""
+        elif "model" in body:
+            models_raw = body["model"]
+            model = body["model"]
+        else:
+            models_raw = existing["models"]
+            model = existing["model"]
+        db.execute("UPDATE providers SET name=?, base_url=?, model=?, models=? WHERE id=?",
+                   (name, burl, model, models_raw, pid))
         if body.get("api_key"):
             db.execute("UPDATE providers SET api_key=? WHERE id=?", (body["api_key"], pid))
     return {"ok": True}
@@ -611,11 +654,14 @@ async def chat_in_conversation(cid: str, request: Request):
         messages.insert(0, {"role": "system", "content": conv["system_prompt"]})
 
     try:
+        # Use model from request, falling back to provider's first model
+        chat_model = body.get("model") or provider["model"]
+        base = normalize_base_url(provider["base_url"])
         async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.post(
-                f"{provider['base_url']}/chat/completions",
+                f"{base}/chat/completions",
                 headers={"Authorization": f"Bearer {provider['api_key']}", "Content-Type": "application/json"},
-                json={"model": provider["model"], "messages": messages}
+                json={"model": chat_model, "messages": messages}
             )
 
         if resp.status_code != 200:
@@ -678,7 +724,7 @@ async def save_settings(request: Request):
 async def fetch_models_from_url(request: Request):
     if not check_session(request): raise HTTPException(401)
     body = await request.json()
-    base = body.get("base_url", "").rstrip("/")
+    base = normalize_base_url(body.get("base_url", ""))
     key = body.get("api_key", "")
     if not base:
         raise HTTPException(400, "base_url required")
@@ -716,15 +762,24 @@ async def fetch_models(pid: str, request: Request):
     with use_db() as db:
         provider = db.execute("SELECT * FROM providers WHERE id=?", (pid,)).fetchone()
     if not provider: raise HTTPException(404)
-    base = provider["base_url"].rstrip("/")
+    base = normalize_base_url(provider["base_url"])
     key = provider["api_key"]
-    models_url = f"{base}/models"
+    # Try /models first; some providers use /v1/models directly
+    urls = [f"{base}/models"]
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             headers = {"Authorization": f"Bearer {key}"} if key else {}
-            resp = await client.get(models_url, headers=headers)
-        if resp.status_code != 200:
-            raise HTTPException(502, f"API returned {resp.status_code}: {await resp.atext()}"[:500])
+            last_err = None
+            for url in urls:
+                try:
+                    resp = await client.get(url, headers=headers)
+                    if resp.status_code == 200:
+                        break
+                    last_err = f"{resp.status_code}: {await resp.atext()}"[:500]
+                except Exception as e:
+                    last_err = str(e)
+            else:
+                raise HTTPException(502, f"Failed to fetch models: {last_err}")
         data = resp.json()
         model_list = []
         if isinstance(data, dict):
