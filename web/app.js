@@ -271,6 +271,7 @@ function renderProviderForm(pid) {
       <label>模型 <span style="color:var(--danger-text)">*</span></label>
       <div class="pf-field" style="display:flex;gap:8px;align-items:center">
         <input type="text" id="pf-model" placeholder="deepseek-chat" style="flex:1">
+        <button type="button" class="btn-secondary" id="btn-pf-fetch">获取</button>
       </div>
       <div class="provider-form-actions">
         <button class="btn-secondary" id="btn-pf-cancel">取消</button>
@@ -279,6 +280,7 @@ function renderProviderForm(pid) {
     </div>`;
     $('#btn-pf-save').addEventListener('click', () => saveProviderForm(null));
     $('#btn-pf-cancel').addEventListener('click', () => { area.innerHTML = ''; });
+    $('#btn-pf-fetch').addEventListener('click', () => fetchModelsFromUrl());
   } else {
     const p = S.providers.find(x => x.id === pid);
     if (!p) return;
@@ -350,9 +352,11 @@ async function deleteProviderInline(pid) {
 }
 
 function toggleQueritOptions() {
-  const q = $('#querit-options');
   if (!$('#settings-search-engine')) return;
-  q.classList.toggle('hidden', $('#settings-search-engine').value !== 'querit');
+  const eng = $('#settings-search-engine').value;
+  $('#querit-options').classList.toggle('hidden', eng !== 'querit');
+  const keyRow = $('#search-key-row');
+  if (keyRow) keyRow.classList.toggle('hidden', eng === 'bing');
 }
 
 async function fetchProviderModels(pid) {
@@ -360,6 +364,39 @@ async function fetchProviderModels(pid) {
   if (btn) { btn.disabled = true; btn.textContent = '获取中...'; }
   try {
     const r = await api('POST', `/api/providers/${pid}/fetch-models`);
+    const models = r.models || [];
+    if (!models.length) { alert('未获取到模型列表'); return; }
+    const modelInput = $('#pf-model');
+    const modelWrap = modelInput.closest('.pf-field') || modelInput.parentElement;
+    let picker = document.getElementById('pf-model-picker');
+    if (!picker) {
+      picker = document.createElement('div');
+      picker.id = 'pf-model-picker';
+      picker.className = 'model-picker';
+      modelWrap.appendChild(picker);
+    }
+    picker.innerHTML = models.map(m => `<div class="model-picker-item" data-model="${esc(m.id)}">${esc(m.id)}</div>`).join('');
+    picker.querySelectorAll('.model-picker-item').forEach(el => {
+      el.addEventListener('click', () => {
+        modelInput.value = el.dataset.model;
+        picker.remove();
+      });
+    });
+  } catch (e) {
+    alert('获取模型失败: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '获取'; }
+  }
+}
+
+async function fetchModelsFromUrl() {
+  const btn = $('#btn-pf-fetch');
+  const base = ($('#pf-url').value || '').trim();
+  const key = ($('#pf-key').value || '').trim();
+  if (!base) { alert('请先填写 API 地址'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = '获取中...'; }
+  try {
+    const r = await api('POST', '/api/fetch-models', { base_url: base, api_key: key });
     const models = r.models || [];
     if (!models.length) { alert('未获取到模型列表'); return; }
     const modelInput = $('#pf-model');
@@ -419,7 +456,7 @@ async function openSettings() {
     $('#settings-querit-max').value = s.querit_max_results || 10;
     $('#settings-querit-time').value = s.querit_time_range || 'none';
     toggleQueritOptions();
-    switchSettingsTab('general');
+    switchSettingsTab('providers');
     renderProviderList();
     $('#settings-page').classList.remove('hidden');
   } catch { alert('无法加载设置'); }

@@ -533,6 +533,42 @@ async def save_settings(request: Request):
         Path("/tmp/idle_timeout_min").write_text(str(t))
     return {"ok": True}
 
+@app.post("/api/fetch-models")
+async def fetch_models_from_url(request: Request):
+    if not check_session(request): raise HTTPException(401)
+    body = await request.json()
+    base = body.get("base_url", "").rstrip("/")
+    key = body.get("api_key", "")
+    if not base:
+        raise HTTPException(400, "base_url required")
+    models_url = f"{base}/models"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            headers = {"Authorization": f"Bearer {key}"} if key else {}
+            resp = await client.get(models_url, headers=headers)
+        if resp.status_code != 200:
+            raise HTTPException(502, f"API returned {resp.status_code}: {await resp.atext()}"[:500])
+        data = resp.json()
+        model_list = []
+        if isinstance(data, dict):
+            items = data.get("data", data.get("models", []))
+        elif isinstance(data, list):
+            items = data
+        else:
+            items = []
+        for m in items:
+            if isinstance(m, dict):
+                mid = m.get("id", m.get("model", ""))
+                if mid:
+                    model_list.append({"id": mid, "owned_by": m.get("owned_by", ""), "created": m.get("created", 0)})
+            elif isinstance(m, str):
+                model_list.append({"id": m})
+        return {"models": model_list, "ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
 @app.post("/api/providers/{pid}/fetch-models")
 async def fetch_models(pid: str, request: Request):
     if not check_session(request): raise HTTPException(401)

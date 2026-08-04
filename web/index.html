@@ -97,13 +97,17 @@
 <div class="overlay hidden" id="settings-page">
   <div class="settings-container">
     <div class="settings-nav">
-      <div class="settings-nav-item active" data-tab="general">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        通用
-      </div>
-      <div class="settings-nav-item" data-tab="providers">
+      <div class="settings-nav-item active" data-tab="providers">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22 6 12 13 2 6"/></svg>
         提供商
+      </div>
+      <div class="settings-nav-item" data-tab="search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        联网搜索
+      </div>
+      <div class="settings-nav-item" data-tab="system">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        系统
       </div>
       <div class="settings-nav-item" data-tab="about">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
@@ -112,7 +116,44 @@
     </div>
     <div class="settings-body">
       <div class="settings-panels-wrap">
-      <div class="settings-panel" id="panel-general">
+      <div class="settings-panel" id="panel-providers">
+        <div class="settings-section-title">API 提供商</div>
+        <div id="provider-form-area"></div>
+        <div id="provider-list"></div>
+        <button class="btn-add-item" id="btn-add-provider">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          添加提供商
+        </button>
+      </div>
+      <div class="settings-panel hidden" id="panel-search">
+        <div class="settings-section">
+          <div class="settings-section-title">联网搜索</div>
+          <label class="settings-label">搜索引擎</label>
+          <select id="settings-search-engine">
+            <option value="bing">Bing Search</option>
+            <option value="tavily">Tavily</option>
+            <option value="bocha">BoCha</option>
+            <option value="querit">Querit</option>
+          </select>
+          <div id="search-key-row">
+            <label class="settings-label">API Key</label>
+            <input type="password" id="settings-search-key" placeholder="各引擎共用 API Key（Bing 无需填写）">
+          </div>
+          <div id="querit-options" class="hidden">
+            <label class="settings-label">最大结果数</label>
+            <input type="number" id="settings-querit-max" min="1" max="20" value="10">
+            <label class="settings-label">时间范围</label>
+            <select id="settings-querit-time">
+              <option value="none">不限</option>
+              <option value="day">过去一天</option>
+              <option value="week">过去一周</option>
+              <option value="month">过去一月</option>
+              <option value="year">过去一年</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="settings-panel hidden" id="panel-system">
         <div class="settings-section">
           <div class="settings-section-title">安全</div>
           <label class="settings-label">Turnstile Site Key</label>
@@ -132,46 +173,13 @@
             </label>
           </label>
         </div>
-        <div class="settings-section">
-          <div class="settings-section-title">联网搜索</div>
-          <label class="settings-label">搜索引擎</label>
-          <select id="settings-search-engine">
-            <option value="bing">Bing Search</option>
-            <option value="tavily">Tavily</option>
-            <option value="bocha">BoCha</option>
-            <option value="querit">Querit</option>
-          </select>
-          <label class="settings-label">API Key</label>
-          <input type="password" id="settings-search-key" placeholder="各引擎共用 API Key">
-          <div id="querit-options" class="hidden">
-            <label class="settings-label">最大结果数</label>
-            <input type="number" id="settings-querit-max" min="1" max="20" value="10">
-            <label class="settings-label">时间范围</label>
-            <select id="settings-querit-time">
-              <option value="none">不限</option>
-              <option value="day">过去一天</option>
-              <option value="week">过去一周</option>
-              <option value="month">过去一月</option>
-              <option value="year">过去一年</option>
-            </select>
-          </div>
-        </div>
-      </div>
-      <div class="settings-panel hidden" id="panel-providers">
-        <div class="settings-section-title">API 提供商</div>
-        <div id="provider-form-area"></div>
-        <div id="provider-list"></div>
-        <button class="btn-add-item" id="btn-add-provider">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          添加提供商
-        </button>
       </div>
       <div class="settings-panel hidden" id="panel-about">
         <div class="settings-about">
           <img src="icon.ico" width="48" height="48" alt="">
           <h3>水鱼 Chat</h3>
           <p>轻量私有 AI 聊天</p>
-          <p class="about-version">Version 1.6</p>
+          <p class="about-version">Version 1.7</p>
           <p class="about-link"><a href="https://github.com/12hgl/waterfishchat" target="_blank">github.com/12hgl/waterfishchat</a></p>
         </div>
       </div>
