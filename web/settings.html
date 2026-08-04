@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>水鱼 Chat - 设置</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .set-page { display:flex; height:100vh; background:var(--bg); overflow:hidden; }
+  .set-sidebar { width:200px; flex-shrink:0; background:var(--bg2); border-right:1px solid var(--border); display:flex; flex-direction:column; }
+  .set-sidebar-header { padding:16px; font-size:16px; font-weight:600; color:var(--text); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+  .set-sidebar-header svg { color:var(--brand); }
+  .set-nav { flex:1; overflow-y:auto; padding:8px; }
+  .set-nav-item { padding:10px 12px; border-radius:8px; font-size:13px; color:var(--text2); cursor:pointer; display:flex; align-items:center; gap:8px; margin-bottom:2px; transition:all .15s; }
+  .set-nav-item:hover { background:var(--bg-hover); color:var(--text); }
+  .set-nav-item.active { background:var(--brand); color:#fff; }
+  .set-nav-item.active svg { color:#fff; }
+  .set-sidebar-footer { padding:12px; border-top:1px solid var(--border); }
+  .set-main { flex:1; overflow-y:auto; padding:24px; }
+  .set-panel { display:none; }
+  .set-panel.active { display:block; }
+
+  /* Provider management */
+  .providers-layout { display:flex; gap:0; height:100%; min-height:500px; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+  .providers-list-panel { width:240px; flex-shrink:0; background:var(--bg2); border-right:1px solid var(--border); display:flex; flex-direction:column; }
+  .providers-list-header { padding:12px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+  .providers-list-header span { font-size:13px; font-weight:600; color:var(--text); }
+  .providers-list-body { flex:1; overflow-y:auto; }
+  .providers-list-body .provider-item { border-bottom:1px solid var(--border); cursor:pointer; padding:10px 12px; transition:background .12s; }
+  .providers-list-body .provider-item:hover { background:var(--bg-hover); }
+  .providers-list-body .provider-item.active { background:var(--bg-active); border-left:3px solid var(--brand); padding-left:9px; }
+  .providers-list-body .provider-item .pname { font-size:13px; font-weight:500; color:var(--text); margin-bottom:2px; }
+  .providers-list-body .provider-item .pdetail { font-size:11px; color:var(--text3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .provider-editor { flex:1; overflow-y:auto; padding:20px; }
+  .provider-editor .empty-state { display:flex; align-items:center; justify-content:center; height:100%; color:var(--text3); font-size:14px; }
+  .pf-form { max-width:520px; }
+  .pf-form label { display:block; font-size:13px; font-weight:500; color:var(--text); margin-bottom:4px; margin-top:16px; }
+  .pf-form label:first-child { margin-top:0; }
+  .pf-form input[type="text"],
+  .pf-form input[type="password"] { width:100%; padding:8px 12px; border:1px solid var(--input-border); border-radius:6px; background:var(--input-bg); color:var(--text); font-size:13px; box-sizing:border-box; }
+  .pf-form input:focus { outline:none; border-color:var(--brand); }
+  .pf-model-bar { display:flex; gap:8px; align-items:center; }
+  .pf-model-bar input { flex:1; }
+  .model-picker { max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; margin-top:6px; background:var(--dialog-bg); }
+  .model-picker-item { padding:6px 10px; font-size:12px; cursor:pointer; transition:background .1s; color:var(--text); border-bottom:1px solid var(--border2); }
+  .model-picker-item:last-child { border-bottom:none; }
+  .model-picker-item:hover { background:var(--bg-hover); }
+  .model-picker-item.sel { background:#eef2ff; color:var(--brand); font-weight:500; }
+  @media(prefers-color-scheme:dark){ .model-picker-item.sel { background:#1e1b4b; } }
+  .pf-actions { display:flex; gap:8px; margin-top:20px; padding-top:16px; border-top:1px solid var(--border); }
+  .btn-sm { padding:6px 14px; font-size:12px; border-radius:6px; cursor:pointer; border:1px solid var(--border); background:var(--bg2); color:var(--text); }
+  .btn-sm.primary { background:var(--brand); color:#fff; border-color:var(--brand); }
+  .btn-sm.primary:hover { background:var(--brand-hover); }
+  .btn-sm.danger { background:var(--danger-bg); color:var(--danger-text); border-color:transparent; }
+  .btn-sm.danger:hover { opacity:.85; }
+
+  /* System / Search panels */
+  .settings-section { margin-bottom:20px; }
+  .settings-section-title { font-size:14px; font-weight:600; color:var(--text); margin-bottom:12px; }
+  .settings-field { margin-bottom:12px; }
+  .settings-field label { display:block; font-size:12px; color:var(--text2); margin-bottom:4px; }
+  .settings-field input[type="text"],
+  .settings-field input[type="password"],
+  .settings-field input[type="number"],
+  .settings-field select { width:100%; max-width:400px; padding:8px 10px; border:1px solid var(--input-border); border-radius:6px; background:var(--input-bg); color:var(--text); font-size:13px; }
+  .settings-field input:focus, .settings-field select:focus { outline:none; border-color:var(--brand); }
+  .settings-field .hint { font-size:11px; color:var(--text3); margin-top:2px; }
+  .settings-check { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+  .settings-check input[type="checkbox"] { accent-color:var(--brand); }
+  .settings-check label { font-size:13px; color:var(--text); }
+
+  .about-section { text-align:center; padding:40px 0; }
+  .about-section img { width:60px; height:60px; margin-bottom:12px; }
+  .about-section h3 { font-size:18px; color:var(--text); margin-bottom:4px; }
+  .about-section p { color:var(--text2); font-size:13px; margin-bottom:4px; }
+  .about-section .about-version { color:var(--text3); font-size:12px; }
+  .about-link { color:var(--brand); font-size:13px; text-decoration:none; }
+  .about-link:hover { text-decoration:underline; }
+</style>
+</head>
+<body>
+<div class="set-page">
+  <aside class="set-sidebar">
+    <div class="set-sidebar-header">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      设置
+    </div>
+    <nav class="set-nav">
+      <div class="set-nav-item active" data-tab="providers">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22 6 12 13 2 6"/></svg>
+        提供商
+      </div>
+      <div class="set-nav-item" data-tab="search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        联网搜索
+      </div>
+      <div class="set-nav-item" data-tab="system">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        系统
+      </div>
+      <div class="set-nav-item" data-tab="about">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        关于
+      </div>
+    </nav>
+    <div class="set-sidebar-footer">
+      <a href="index.html" style="display:flex;align-items:center;gap:6px;color:var(--text2);text-decoration:none;font-size:13px;padding:8px 12px;border-radius:6px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        返回聊天
+      </a>
+    </div>
+  </aside>
+
+  <main class="set-main">
+    <!-- Providers -->
+    <div class="set-panel active" id="panel-providers">
+      <div class="providers-layout">
+        <div class="providers-list-panel">
+          <div class="providers-list-header">
+            <span>提供商</span>
+            <button class="btn-sm primary" id="btn-add-provider">+ 添加</button>
+          </div>
+          <div class="providers-list-body" id="providers-list"></div>
+        </div>
+        <div class="provider-editor" id="provider-editor">
+          <div class="empty-state">选择左侧提供商或点击「添加」</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Search -->
+    <div class="set-panel" id="panel-search">
+      <div class="settings-section">
+        <div class="settings-section-title">联网搜索</div>
+        <div class="settings-field">
+          <label>搜索引擎</label>
+          <select id="settings-search-engine">
+            <option value="bing">Bing</option>
+            <option value="google">Google</option>
+            <option value="duckduckgo">DuckDuckGo</option>
+            <option value="serper">Serper (Google API)</option>
+          </select>
+        </div>
+        <div class="settings-field">
+          <label>API Key（Serper 等需要）</label>
+          <input type="text" id="settings-search-key" placeholder="留空使用内置搜索">
+        </div>
+        <div class="settings-field">
+          <label>搜索结果数</label>
+          <input type="number" id="settings-search-max" value="10" min="1" max="50">
+        </div>
+        <div class="settings-field">
+          <label>时间范围</label>
+          <select id="settings-search-time">
+            <option value="none">不限</option>
+            <option value="day">24小时</option>
+            <option value="week">一周内</option>
+            <option value="month">一月内</option>
+            <option value="year">一年内</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- System -->
+    <div class="set-panel" id="panel-system">
+      <div class="settings-section">
+        <div class="settings-section-title">安全</div>
+        <div class="settings-field">
+          <label>Turnstile Site Key</label>
+          <input type="text" id="settings-sitekey" placeholder="留空不启用 Turnstile">
+        </div>
+        <div class="settings-field">
+          <label>Turnstile Secret</label>
+          <input type="password" id="settings-secret" placeholder="留空不启用 Turnstile">
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">会话</div>
+        <div class="settings-field">
+          <label>空闲超时（分钟，0 为永不过期）</label>
+          <input type="number" id="settings-idle" value="1440" min="0">
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">网络</div>
+        <div class="settings-check">
+          <input type="checkbox" id="settings-container-net">
+          <label>使用 Docker 容器网络模式</label>
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">普通用户权限</div>
+        <div class="settings-field">
+          <label>允许使用的模型（逗号分隔，留空为全部）</label>
+          <input type="text" id="settings-user-models" placeholder="gpt-3.5-turbo, gpt-4o-mini">
+          <div class="hint">非管理员用户只能选择此列表中的模型</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- About -->
+    <div class="set-panel" id="panel-about">
+      <div class="about-section">
+        <img src="icon.ico" width="60" height="60" alt="">
+        <h3>水鱼 Chat</h3>
+        <p>轻量私有 AI 聊天</p>
+        <p class="about-version">Version 1.13</p>
+        <p><a class="about-link" href="https://github.com/12hgl/waterfishchat" target="_blank">github.com/12hgl/waterfishchat</a></p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

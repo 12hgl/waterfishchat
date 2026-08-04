@@ -3,6 +3,15 @@ const $$ = s => document.querySelectorAll(s);
 let turnstileWid = null;
 let turnstileReady = false;
 
+function toggleSelectAllModels(e, pickerId) {
+  e.preventDefault();
+  const picker = document.getElementById(pickerId);
+  const items = picker.querySelectorAll('.model-picker-item');
+  const allSel = Array.from(items).every(i => i.classList.contains('sel'));
+  items.forEach(i => { if (allSel !== i.classList.contains('sel')) i.click(); });
+  e.target.textContent = allSel ? '全选' : '取消全选';
+}
+
 function ensureTurnstile(cb) {
   if (window.turnstile) { turnstileReady = true; cb(); return; }
   let tries = 0, max = 100;
@@ -102,8 +111,6 @@ async function showMain() {
   S.page = 'main';
   document.querySelectorAll('.overlay').forEach(e => e.classList.add('hidden'));
   $('#app').style.display = 'flex';
-  $('#btn-open-settings').classList.toggle('hidden', !S.isAdmin);
-  $('#btn-open-users').classList.toggle('hidden', !S.isAdmin);
 }
 
 async function loadProviders() {
@@ -134,10 +141,16 @@ function renderModelSelect() {
   sel.innerHTML = options.length ? options.join('') : '<option value="">无提供商</option>';
   sel.addEventListener('change', async e => {
     const parts = (e.target.value || '').split('|');
-    S.activePid = parts[0] || null;
-    S.activeModel = parts[1] || '';
-    await loadConvs();
-    renderAll();
+    const newPid = parts[0] || null;
+    const newModel = parts[1] || '';
+    if (newPid !== S.activePid) {
+      S.activePid = newPid;
+      S.activeModel = newModel;
+      await loadConvs();
+      renderAll();
+    } else {
+      S.activeModel = newModel;
+    }
   }, { once: true });
 }
 
@@ -401,7 +414,7 @@ async function fetchProviderModels(pid) {
       modelWrap.appendChild(picker);
     }
     const current = modelInput.value.split(',').map(s => s.trim()).filter(Boolean);
-    picker.innerHTML = `<div style="padding:4px 8px;font-size:12px;color:var(--text2);border-bottom:1px solid var(--border-color);margin-bottom:4px">点击添加 / 点击已选移除 | <a href="#" onclick="document.querySelectorAll('.model-picker-item.sel').forEach(e=>e.click());return false" style="color:var(--primary)">全选</a></div>`
+    picker.innerHTML = `<div style="padding:4px 8px;font-size:12px;color:var(--text2);border-bottom:1px solid var(--border-color);margin-bottom:4px">点击添加 / 点击已选移除 | <a href="#" onclick="toggleSelectAllModels(event,'pf-model-picker')" style="color:var(--primary)">全选</a></div>`
       + models.map(m => {
         const sel = current.includes(m.id) ? ' sel' : '';
         return `<div class="model-picker-item${sel}" data-model="${esc(m.id)}">${current.includes(m.id) ? '✓ ' : ''}${esc(m.id)}</div>`;
@@ -444,7 +457,7 @@ async function fetchModelsFromUrl() {
       modelWrap.appendChild(picker);
     }
     const current = modelInput.value.split(',').map(s => s.trim()).filter(Boolean);
-    picker.innerHTML = `<div style="padding:4px 8px;font-size:12px;color:var(--text2);border-bottom:1px solid var(--border-color);margin-bottom:4px">点击添加 / 点击已选移除 | <a href="#" onclick="document.querySelectorAll('.model-picker-item.sel').forEach(e=>e.click());return false" style="color:var(--primary)">全选</a></div>`
+    picker.innerHTML = `<div style="padding:4px 8px;font-size:12px;color:var(--text2);border-bottom:1px solid var(--border-color);margin-bottom:4px">点击添加 / 点击已选移除 | <a href="#" onclick="toggleSelectAllModels(event,'pf-model-picker')" style="color:var(--primary)">全选</a></div>`
       + models.map(m => {
         const sel = current.includes(m.id) ? ' sel' : '';
         return `<div class="model-picker-item${sel}" data-model="${esc(m.id)}">${current.includes(m.id) ? '✓ ' : ''}${esc(m.id)}</div>`;
@@ -578,9 +591,6 @@ $('#btn-init-submit').addEventListener('click', doInit);
 $('#btn-login-submit').addEventListener('click', doLogin);
 $('#btn-send').addEventListener('click', sendMsg);
 $('#btn-new-chat').addEventListener('click', newConv);
-$('#btn-open-settings').addEventListener('click', openSettings);
-$('#btn-settings-save').addEventListener('click', saveSettings);
-$('#btn-settings-close').addEventListener('click', () => $('#settings-page').classList.add('hidden'));
 $('#btn-logout').addEventListener('click', doLogout);
 $('#btn-toggle-sidebar').addEventListener('click', () => {
   if (window.innerWidth <= 640) {
@@ -740,16 +750,279 @@ async function deleteUser(uid) {
   } catch (e) { alert(e.message); }
 }
 
-function openUsers() {
-  loadUsers();
+async function openUsers() {
+  $('#user-list').innerHTML = '<div style="padding:12px;color:var(--text3);text-align:center">加载中...</div>';
+  $('#users-page').classList.remove('hidden');
+  await loadUsers();
   $('#user-add-form').style.display = 'none';
   $('#btn-add-user').style.display = '';
-  $('#users-page').classList.remove('hidden');
 }
 
-$('#btn-open-users')?.addEventListener('click', openUsers);
-$('#btn-add-user')?.addEventListener('click', toggleAddUser);
-$('#btn-add-user-confirm')?.addEventListener('click', addUser);
-$('#btn-users-close')?.addEventListener('click', () => $('#users-page').classList.add('hidden'));
+// ===== SETTINGS PAGE ============================================================
+function settings_switchTab(tab) {
+  document.querySelectorAll('.set-nav-item').forEach(n => n.classList.toggle('active', n.dataset.tab === tab));
+  document.querySelectorAll('.set-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${tab}`));
+}
 
-checkStatus();
+async function settings_loadProviders() {
+  try { S.providers = await api('GET', '/api/providers'); } catch { S.providers = []; }
+  if (!S.activePid && S.providers.length) {
+    S.activePid = S.providers[0].id;
+    S.activeModel = S.providers[0].models?.[0] || S.providers[0].model || '';
+  }
+}
+
+function settings_renderProviderList() {
+  const list = $('#providers-list');
+  if (!list) return;
+  list.innerHTML = S.providers.map(p => `
+    <div class="provider-item${p.id === S.activePid ? ' active' : ''}" data-sid="${p.id}">
+      <div class="pname">${esc(p.name)}</div>
+      <div class="pdetail">${esc((p.models || [p.model]).filter(Boolean).join(', ') || '-')}</div>
+    </div>`).join('') || '<div style="padding:16px;color:var(--text3);font-size:12px;text-align:center">暂无提供商</div>';
+
+  list.querySelectorAll('.provider-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const pid = item.dataset.sid;
+      S.activePid = pid;
+      settings_renderProviderList();
+      settings_renderProviderForm(pid);
+    });
+  });
+}
+
+function settings_renderProviderForm(pid) {
+  const area = $('#provider-editor');
+  if (!area) return;
+  const p = pid ? S.providers.find(x => x.id === pid) : null;
+
+  if (!pid || !p) {
+    // New provider
+    area.innerHTML = `<div class="pf-form">
+      <h3 style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:20px">新建提供商</h3>
+      <label>名称 <span style="color:var(--danger-text)">*</span></label>
+      <input type="text" id="pf-name" placeholder="如：DeepSeek">
+      <label>API 地址 <span style="color:var(--danger-text)">*</span></label>
+      <input type="text" id="pf-url" placeholder="https://api.deepseek.com">
+      <label>API Key <span style="color:var(--danger-text)">*</span></label>
+      <input type="password" id="pf-key" placeholder="sk-...">
+      <label>模型列表 <span style="color:var(--danger-text)">*</span></label>
+      <div class="pf-model-bar"><input type="text" id="pf-models" placeholder="deepseek-chat, deepseek-reasoner"><button class="btn-sm" id="btn-pf-fetch">获取</button></div>
+      <div class="model-picker" id="pf-model-picker" style="display:none"></div>
+      <div class="pf-actions">
+        <button class="btn-sm" id="btn-pf-cancel">取消</button>
+        <button class="btn-sm primary" id="btn-pf-save">保存</button>
+      </div>
+    </div>`;
+    $('#btn-pf-save').addEventListener('click', () => settings_saveProvider(null));
+    $('#btn-pf-cancel').addEventListener('click', () => { S.activePid = S.providers.length ? S.providers[0].id : null; settings_renderProviderList(); if (S.activePid) settings_renderProviderForm(S.activePid); else area.innerHTML = '<div class="empty-state">选择左侧提供商或点击「添加」</div>'; });
+    $('#btn-pf-fetch').addEventListener('click', () => fetchModelsFromUrl());
+    return;
+  }
+
+  // Edit existing
+  const models = (p.models || []).join(', ');
+  area.innerHTML = `<div class="pf-form">
+    <h3 style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:20px">${esc(p.name)}</h3>
+    <label>名称 <span style="color:var(--danger-text)">*</span></label>
+    <input type="text" id="pf-name" value="${esc(p.name)}">
+    <label>API 地址 <span style="color:var(--danger-text)">*</span></label>
+    <input type="text" id="pf-url" value="${esc(p.base_url)}">
+    <label>API Key</label>
+    <input type="password" id="pf-key" placeholder="留空则不修改">
+    <label>模型列表 <span style="color:var(--danger-text)">*</span></label>
+    <div class="pf-model-bar"><input type="text" id="pf-models" value="${esc(models)}"><button class="btn-sm" id="btn-pf-fetch">获取</button></div>
+    <div class="model-picker" id="pf-model-picker" style="display:none"></div>
+    <div class="pf-actions">
+      <button class="btn-sm danger" id="btn-pf-delete">删除</button>
+      <button class="btn-sm" id="btn-pf-cancel">取消</button>
+      <button class="btn-sm primary" id="btn-pf-save">保存</button>
+    </div>
+  </div>`;
+  $('#btn-pf-save').addEventListener('click', () => settings_saveProvider(pid));
+  $('#btn-pf-cancel').addEventListener('click', () => { settings_renderProviderForm(pid); });
+  $('#btn-pf-delete').addEventListener('click', () => settings_deleteProvider(pid));
+  $('#btn-pf-fetch').addEventListener('click', () => fetchProviderModels(pid));
+}
+
+async function settings_saveProvider(pid) {
+  const modelsRaw = ($('#pf-models').value || '').trim();
+  const modelList = modelsRaw ? modelsRaw.split(',').map(m => m.trim()).filter(Boolean) : [];
+  const body = {
+    name: $('#pf-name').value.trim(),
+    base_url: $('#pf-url').value.trim(),
+    models: modelList.join(','),
+    model: modelList[0] || ''
+  };
+  const key = ($('#pf-key').value || '').trim();
+  if (key) body.api_key = key;
+  if (!body.name || !body.base_url || !body.models || (!pid && !key)) {
+    alert('名称、API 地址、模型列表、API Key 均为必填'); return;
+  }
+  try {
+    if (pid) { await api('PUT', `/api/providers/${pid}`, body); }
+    else {
+      const r = await api('POST', '/api/providers', body);
+      S.activePid = r.id;
+    }
+    await settings_loadProviders();
+    if (!S.activePid && S.providers.length) S.activePid = S.providers[0].id;
+    settings_renderProviderList();
+    if (S.activePid) settings_renderProviderForm(S.activePid);
+  } catch (e) { alert(e.message); }
+}
+
+async function settings_deleteProvider(pid) {
+  if (!confirm('删除此提供商？关联的对话也会被删除。')) return;
+  try {
+    await api('DELETE', `/api/providers/${pid}`);
+    S.providers = S.providers.filter(p => p.id !== pid);
+    if (S.activePid === pid) S.activePid = S.providers[0]?.id || null;
+    settings_renderProviderList();
+    const area = $('#provider-editor');
+    if (S.activePid) settings_renderProviderForm(S.activePid);
+    else area.innerHTML = '<div class="empty-state">选择左侧提供商或点击「添加」</div>';
+  } catch (e) { alert(e.message); }
+}
+
+async function settings_saveAll() {
+  try {
+    await api('POST', '/api/settings', {
+      turnstile_site_key: $('#settings-sitekey').value.trim(),
+      turnstile_secret: $('#settings-secret').value.trim(),
+      idle_timeout: parseInt($('#settings-idle').value) || 1440,
+      use_container_network: $('#settings-container-net').checked,
+      web_search_engine: $('#settings-search-engine').value,
+      web_search_api_key: $('#settings-search-key').value.trim(),
+      querit_max_results: parseInt($('#settings-search-max').value) || 10,
+      querit_time_range: $('#settings-search-time').value,
+      user_models: $('#settings-user-models').value.trim()
+    });
+    alert('保存成功');
+  } catch (e) { alert('保存失败: ' + e.message); }
+}
+
+async function initSettings() {
+  try {
+    const s = await api('GET', '/api/status');
+    if (!s.initialized) { window.location.href = 'index.html'; return; }
+    if (!s.is_admin) { window.location.href = 'index.html'; return; }
+  } catch { window.location.href = 'index.html'; return; }
+
+  // Load settings
+  try {
+    const s = await api('GET', '/api/settings');
+    $('#settings-sitekey').value = s.turnstile_site_key || '';
+    $('#settings-secret').value = s.turnstile_secret || '';
+    $('#settings-idle').value = s.idle_timeout || 1440;
+    $('#settings-container-net').checked = s.use_container_network || false;
+    $('#settings-search-engine').value = s.web_search_engine || 'bing';
+    $('#settings-search-key').value = s.web_search_api_key || '';
+    $('#settings-search-max').value = s.querit_max_results || 10;
+    $('#settings-search-time').value = s.querit_time_range || 'none';
+    $('#settings-user-models').value = s.user_models || '';
+  } catch {}
+
+  await settings_loadProviders();
+  settings_renderProviderList();
+  if (S.activePid) settings_renderProviderForm(S.activePid);
+
+  // Tab switching
+  document.querySelectorAll('.set-nav-item').forEach(item => {
+    item.addEventListener('click', () => settings_switchTab(item.dataset.tab));
+  });
+
+  // Add provider button
+  $('#btn-add-provider')?.addEventListener('click', () => {
+    S.activePid = null;
+    settings_renderProviderList();
+    settings_renderProviderForm(null);
+  });
+
+  // Save settings button (at bottom of each panel)
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn-sm primary';
+  saveBtn.textContent = '保存设置';
+  saveBtn.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:10px 20px;font-size:13px;box-shadow:0 2px 12px rgba(0,0,0,.15);z-index:10;';
+  saveBtn.addEventListener('click', settings_saveAll);
+  document.body.appendChild(saveBtn);
+}
+
+// ===== USERS PAGE ==============================================================
+function users_renderList(users) {
+  const list = $('#user-list');
+  if (!list) return;
+  list.innerHTML = users.map(u => `
+    <div class="usr-item">
+      <div class="usr-info">
+        <div class="usr-name">${esc(u.username)} <span class="usr-badge ${u.is_admin ? 'admin' : 'user'}">${u.is_admin ? '管理员' : '普通用户'}</span></div>
+        <div class="usr-meta">创建于 ${new Date(u.created_at*1000).toLocaleString('zh-CN')}</div>
+      </div>
+      <button class="btn-sm danger" data-del="${u.id}" ${u.is_admin ? 'disabled' : ''}>删除</button>
+    </div>`).join('') || '<div class="usr-empty">暂无用户</div>';
+
+  list.querySelectorAll('[data-del]').forEach(btn => {
+    btn.addEventListener('click', () => users_delete(btn.dataset.del));
+  });
+}
+
+async function users_load() {
+  const list = $('#user-list');
+  if (!list) return;
+  try {
+    const r = await api('GET', '/api/users');
+    users_renderList(r.users || []);
+  } catch (e) {
+    list.innerHTML = `<div class="usr-error">加载失败: ${esc(e.message)}</div>`;
+  }
+}
+
+function users_toggleAdd() {
+  const form = $('#user-add-form');
+  const show = form.style.display === 'none' || !form.style.display;
+  form.style.display = show ? 'block' : 'none';
+  $('#btn-add-user').style.display = show ? 'none' : '';
+  if (show) $('#new-username').focus();
+}
+
+async function users_add() {
+  const name = $('#new-username').value.trim();
+  const pw = $('#new-user-password').value.trim();
+  if (!name || !pw) { alert('用户名和密码不能为空'); return; }
+  if (pw.length < 4) { alert('密码至少 4 位'); return; }
+  try {
+    await api('POST', '/api/users', { username: name, password: pw });
+    $('#new-username').value = '';
+    $('#new-user-password').value = '';
+    users_toggleAdd();
+    await users_load();
+  } catch (e) { alert(e.message); }
+}
+
+async function users_delete(uid) {
+  if (!confirm('确定删除此用户？')) return;
+  try {
+    await api('DELETE', `/api/users/${uid}`);
+    await users_load();
+  } catch (e) { alert(e.message); }
+}
+
+async function initUsers() {
+  try {
+    const s = await api('GET', '/api/status');
+    if (!s.initialized || !s.is_admin) { window.location.href = 'index.html'; return; }
+  } catch { window.location.href = 'index.html'; return; }
+
+  await users_load();
+  $('#btn-add-user')?.addEventListener('click', users_toggleAdd);
+  $('#btn-add-user-confirm')?.addEventListener('click', users_add);
+  $('#btn-add-user-cancel')?.addEventListener('click', users_toggleAdd);
+}
+
+// ===== PAGE ROUTER =============================================================
+(function() {
+  const path = window.location.pathname.split('/').pop();
+  if (path === 'settings.html' || path === 'settings') initSettings();
+  else if (path === 'users.html' || path === 'users') initUsers();
+  else checkStatus();
+})();
