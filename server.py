@@ -734,7 +734,15 @@ async def fetch_models_from_url(request: Request):
             headers = {"Authorization": f"Bearer {key}"} if key else {}
             resp = await client.get(models_url, headers=headers)
         if resp.status_code != 200:
-            raise HTTPException(502, f"API returned {resp.status_code}: {await resp.atext()}"[:500])
+            detail = ""
+            try:
+                detail = (await resp.atext())[:500]
+            except Exception:
+                detail = "(could not read response body)"
+            hint = ""
+            if "192.168." in base or "10." in base.split("/")[2].split(".")[0] if "/" in base else False:
+                hint = " | Docker 容器可能无法访问局域网地址，尝试使用 host.docker.internal 代替 IP"
+            raise HTTPException(502, f"Remote API returned {resp.status_code}: {detail}{hint}")
         data = resp.json()
         model_list = []
         if isinstance(data, dict):
@@ -754,7 +762,10 @@ async def fetch_models_from_url(request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(502, str(e))
+        msg = str(e)
+        if "192.168." in base or "172." in base or "10." in base:
+            msg += " | Docker 容器可能无法访问局域网地址，尝试使用 host.docker.internal 代替 IP"
+        raise HTTPException(502, msg[:600])
 
 @app.post("/api/providers/{pid}/fetch-models")
 async def fetch_models(pid: str, request: Request):
@@ -764,7 +775,6 @@ async def fetch_models(pid: str, request: Request):
     if not provider: raise HTTPException(404)
     base = normalize_base_url(provider["base_url"])
     key = provider["api_key"]
-    # Try /models first; some providers use /v1/models directly
     urls = [f"{base}/models"]
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -775,11 +785,19 @@ async def fetch_models(pid: str, request: Request):
                     resp = await client.get(url, headers=headers)
                     if resp.status_code == 200:
                         break
-                    last_err = f"{resp.status_code}: {await resp.atext()}"[:500]
+                    detail = ""
+                    try:
+                        detail = (await resp.atext())[:500]
+                    except Exception:
+                        detail = "(could not read response body)"
+                    last_err = f"Remote API returned {resp.status_code}: {detail}"
                 except Exception as e:
                     last_err = str(e)
             else:
-                raise HTTPException(502, f"Failed to fetch models: {last_err}")
+                hint = ""
+                if any(x in base for x in ("192.168.", "172.", "10.")):
+                    hint = " | Docker 容器可能无法访问局域网地址，尝试使用 host.docker.internal 代替 IP"
+                raise HTTPException(502, f"Failed to fetch models: {last_err}{hint}")
         data = resp.json()
         model_list = []
         if isinstance(data, dict):
@@ -799,7 +817,10 @@ async def fetch_models(pid: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(502, str(e))
+        msg = str(e)
+        if any(x in base for x in ("192.168.", "172.", "10.")):
+            msg += " | Docker 容器可能无法访问局域网地址，尝试使用 host.docker.internal 代替 IP"
+        raise HTTPException(502, msg[:600])
 
 if __name__ == "__main__":
     import uvicorn
