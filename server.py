@@ -313,7 +313,8 @@ def get_settings(request: Request):
     return {
         "turnstile_site_key": cfg_get("turnstile_site_key") or "",
         "turnstile_secret": cfg_get("turnstile_secret") or "",
-        "idle_timeout": int(cfg_get("idle_timeout") or 15)
+        "idle_timeout": int(cfg_get("idle_timeout") or 15),
+        "use_container_network": cfg_get("use_container_network") == "true"
     }
 
 @app.post("/api/settings")
@@ -322,6 +323,7 @@ async def save_settings(request: Request):
     body = await request.json()
     if "turnstile_site_key" in body: cfg_set("turnstile_site_key", body["turnstile_site_key"])
     if "turnstile_secret" in body: cfg_set("turnstile_secret", body["turnstile_secret"])
+    if "use_container_network" in body: cfg_set("use_container_network", "true" if body["use_container_network"] else "false")
     if "idle_timeout" in body:
         t = max(1, min(120, int(body["idle_timeout"])))
         cfg_set("idle_timeout", str(t))

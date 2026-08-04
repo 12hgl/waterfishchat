@@ -1,11 +1,15 @@
 const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
 let turnstileWid = null;
 
 async function api(method, path, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' };
   if (body) opts.body = JSON.stringify(body);
   const resp = await fetch(path, opts);
-  if (resp.status === 401) { showLogin(); throw new Error('Unauthorized'); }
+  if (resp.status === 401) {
+    if (S.page === 'main') showLogin();
+    throw new Error('Unauthorized');
+  }
   if (!resp.ok) {
     const e = await resp.json().catch(() => ({}));
     throw new Error(e.detail || `Error ${resp.status}`);
@@ -40,8 +44,14 @@ async function checkStatus() {
     const s = await api('GET', '/api/status');
     if (!s.initialized) { showInit(s); return; }
     S.settings.turnstileSiteKey = s.turnstile_site_key || '';
+    S.providers = await api('GET', '/api/providers');
+    if (S.providers.length && !S.activePid) S.activePid = S.providers[0].id;
+    if (S.activePid) await loadConvs();
+    showMain();
+    renderAll();
+  } catch {
     showLogin();
-  } catch { showInit({ initialized: false }); }
+  }
 }
 
 function showInit(status) {
@@ -56,12 +66,13 @@ function showLogin() {
   S.page = 'login';
   document.querySelectorAll('.overlay').forEach(e => e.classList.add('hidden'));
   $('#app').style.display = 'none';
+  S.activePid = null; S.activeCid = null;
   $('#login-overlay').classList.remove('hidden');
   const box = $('#turnstile-box');
   if (S.settings.turnstileSiteKey) {
     box.classList.remove('hidden');
     if (turnstileWid !== null) turnstile.remove(turnstileWid);
-    turnstileWid = turnstile.render('#turnstile-box', { sitekey: S.settings.turnstileSiteKey, theme: 'dark' });
+    turnstileWid = turnstile.render('#turnstile-box', { sitekey: S.settings.turnstileSiteKey, theme: 'auto' });
   } else { box.classList.add('hidden'); }
   $('#login-password').focus();
 }
@@ -70,10 +81,6 @@ async function showMain() {
   S.page = 'main';
   document.querySelectorAll('.overlay').forEach(e => e.classList.add('hidden'));
   $('#app').style.display = 'flex';
-  await loadProviders();
-  if (S.providers.length && !S.activePid) S.activePid = S.providers[0].id;
-  if (S.activePid) await loadConvs();
-  renderAll();
 }
 
 async function loadProviders() {
@@ -110,7 +117,7 @@ function renderConvList() {
         <span class="conv-name">${esc(c.title)}</span>
         <button class="conv-del" data-cid="${c.id}">&times;</button>
       </div>`).join('')
-    : '<div style="color:#52525b;font-size:12px;padding:12px;text-align:center">暂无对话</div>';
+    : '<div style="color:var(--text3);font-size:12px;padding:12px;text-align:center">暂无对话</div>';
 
   list.querySelectorAll('.conv-item').forEach(el => {
     el.addEventListener('click', async e => {
@@ -129,7 +136,7 @@ function renderConvList() {
 function renderMessages() {
   const c = $('#messages');
   if (!S.activeCid || !S.messages.length) {
-    c.innerHTML = '<div class="empty-hint"><span class="fish">🐟</span>水鱼 Chat · 选择一个对话开始</div>';
+    c.innerHTML = `<div class="empty-hint"><img class="fish" src="icon.ico" width="48" height="48" alt="">水鱼 Chat · 选择一个对话开始</div>`;
     $('#chat-title').textContent = '水鱼 Chat';
     return;
   }
@@ -205,40 +212,61 @@ async function sendMsg() {
   }
 }
 
-async function openProviderDialog(pid) {
-  $('#provider-dialog-title').textContent = pid ? '编辑提供商' : '添加提供商';
-  const delBtn = $('#btn-provider-delete');
-  const keyReq = $('#provider-key-req');
-  if (pid) {
-    const p = S.providers.find(x => x.id === pid);
-    if (p) {
-      $('#provider-name').value = p.name;
-      $('#provider-url').value = p.base_url;
-      $('#provider-model').value = p.model;
-    }
-    $('#provider-key').value = ''; $('#provider-key').placeholder = '留空则不修改';
-    $('#provider-overlay').dataset.editId = pid;
-    delBtn.classList.remove('hidden');
-    keyReq.style.display = 'none';
-  } else {
-    $('#provider-name').value = ''; $('#provider-url').value = '';
-    $('#provider-key').value = ''; $('#provider-model').value = '';
-    $('#provider-key').placeholder = 'sk-...';
-    delete $('#provider-overlay').dataset.editId;
-    delBtn.classList.add('hidden');
-    keyReq.style.display = 'inline';
-  }
-  $('#provider-overlay').classList.remove('hidden');
+function switchSettingsTab(tab) {
+  $$('.settings-nav-item').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
+  $$('.settings-panel').forEach(el => el.classList.toggle('hidden', el.id !== `panel-${tab}`));
 }
 
-async function saveProvider() {
-  const pid = $('#provider-overlay').dataset.editId;
+function renderProviderForm(pid) {
+  const area = $('#provider-form-area');
+  if (!pid) {
+    area.innerHTML = `<div class="provider-form">
+      <label>名称 <span style="color:var(--danger-text)">*</span></label>
+      <input type="text" id="pf-name" placeholder="如：DeepSeek">
+      <label>API 地址 <span style="color:var(--danger-text)">*</span></label>
+      <input type="text" id="pf-url" placeholder="https://api.deepseek.com/v1">
+      <label>API Key <span style="color:var(--danger-text)">*</span></label>
+      <input type="password" id="pf-key" placeholder="sk-...">
+      <label>模型 <span style="color:var(--danger-text)">*</span></label>
+      <input type="text" id="pf-model" placeholder="deepseek-chat">
+      <div class="provider-form-actions">
+        <button class="btn-secondary" id="btn-pf-cancel">取消</button>
+        <button class="btn-primary" id="btn-pf-save">保存</button>
+      </div>
+    </div>`;
+    $('#btn-pf-save').addEventListener('click', () => saveProviderForm(null));
+    $('#btn-pf-cancel').addEventListener('click', () => { area.innerHTML = ''; });
+  } else {
+    const p = S.providers.find(x => x.id === pid);
+    if (!p) return;
+    area.innerHTML = `<div class="provider-form">
+      <label>名称 <span style="color:var(--danger-text)">*</span></label>
+      <input type="text" id="pf-name" value="${esc(p.name)}">
+      <label>API 地址 <span style="color:var(--danger-text)">*</span></label>
+      <input type="text" id="pf-url" value="${esc(p.base_url)}">
+      <label>API Key</label>
+      <input type="password" id="pf-key" placeholder="留空则不修改">
+      <label>模型 <span style="color:var(--danger-text)">*</span></label>
+      <input type="text" id="pf-model" value="${esc(p.model)}">
+      <div class="provider-form-actions">
+        <button class="btn-danger" id="btn-pf-delete">删除</button>
+        <button class="btn-secondary" id="btn-pf-cancel">取消</button>
+        <button class="btn-primary" id="btn-pf-save">保存</button>
+      </div>
+    </div>`;
+    $('#btn-pf-save').addEventListener('click', () => saveProviderForm(pid));
+    $('#btn-pf-cancel').addEventListener('click', () => { area.innerHTML = ''; renderProviderList(); });
+    $('#btn-pf-delete').addEventListener('click', () => deleteProviderInline(pid));
+  }
+}
+
+async function saveProviderForm(pid) {
   const body = {
-    name: $('#provider-name').value.trim(),
-    base_url: $('#provider-url').value.trim(),
-    model: $('#provider-model').value.trim()
+    name: $('#pf-name').value.trim(),
+    base_url: $('#pf-url').value.trim(),
+    model: $('#pf-model').value.trim()
   };
-  const key = $('#provider-key').value.trim();
+  const key = $('#pf-key').value.trim();
   if (key) body.api_key = key;
   if (!body.name || !body.base_url || !body.model || (!pid && !key)) {
     alert('名称、API 地址、模型、API Key 均为必填'); return;
@@ -249,16 +277,17 @@ async function saveProvider() {
       const r = await api('POST', '/api/providers', body);
       S.activePid = r.id;
     }
-    $('#provider-overlay').classList.add('hidden');
+    $('#provider-form-area').innerHTML = '';
     await loadProviders();
-    await loadConvs();
+    if (!S.activePid && S.providers.length) S.activePid = S.providers[0].id;
+    if (S.activePid) await loadConvs();
+    renderProviderList();
     renderAll();
   } catch (e) { alert(e.message); }
 }
 
-async function deleteProvider() {
-  const pid = $('#provider-overlay').dataset.editId;
-  if (!pid || !confirm('删除此提供商？关联的对话也会被删除。')) return;
+async function deleteProviderInline(pid) {
+  if (!confirm('删除此提供商？关联的对话也会被删除。')) return;
   try {
     await api('DELETE', `/api/providers/${pid}`);
     S.providers = S.providers.filter(p => p.id !== pid);
@@ -267,9 +296,32 @@ async function deleteProvider() {
       S.activeCid = null; S.messages = [];
       if (S.activePid) await loadConvs();
     }
-    $('#provider-overlay').classList.add('hidden');
+    $('#provider-form-area').innerHTML = '';
+    renderProviderList();
     renderAll();
   } catch (e) { alert(e.message); }
+}
+
+function renderProviderList() {
+  const list = $('#provider-list');
+  list.innerHTML = S.providers.map(p => `
+    <div class="provider-item">
+      <div class="pinfo">
+        <div class="pname">${esc(p.name)}</div>
+        <div class="pdetail">${esc(p.model)} · ${esc(p.base_url)}</div>
+      </div>
+      <div class="pactions">
+        <button class="paction-btn" data-edit="${p.id}">编辑</button>
+        <button class="paction-btn del" data-del="${p.id}">删除</button>
+      </div>
+    </div>`).join('') || '<div style="color:var(--text3);font-size:13px;padding:12px 0;text-align:center">暂无提供商</div>';
+
+  list.querySelectorAll('[data-edit]').forEach(btn => {
+    btn.addEventListener('click', () => renderProviderForm(btn.dataset.edit));
+  });
+  list.querySelectorAll('[data-del]').forEach(btn => {
+    btn.addEventListener('click', () => deleteProviderInline(btn.dataset.del));
+  });
 }
 
 async function openSettings() {
@@ -278,8 +330,11 @@ async function openSettings() {
     $('#settings-sitekey').value = s.turnstile_site_key || '';
     $('#settings-secret').value = s.turnstile_secret || '';
     $('#settings-idle').value = s.idle_timeout;
-    $('#settings-overlay').classList.remove('hidden');
-  } catch {}
+    $('#settings-container-net').checked = s.use_container_network || false;
+    switchSettingsTab('general');
+    renderProviderList();
+    $('#settings-page').classList.remove('hidden');
+  } catch { alert('无法加载设置'); }
 }
 
 async function saveSettings() {
@@ -287,9 +342,10 @@ async function saveSettings() {
     await api('POST', '/api/settings', {
       turnstile_site_key: $('#settings-sitekey').value.trim(),
       turnstile_secret: $('#settings-secret').value.trim(),
-      idle_timeout: parseInt($('#settings-idle').value) || 15
+      idle_timeout: parseInt($('#settings-idle').value) || 15,
+      use_container_network: $('#settings-container-net').checked
     });
-    $('#settings-overlay').classList.add('hidden');
+    $('#settings-page').classList.add('hidden');
   } catch (e) { alert(e.message); }
 }
 
@@ -321,7 +377,11 @@ async function doLogin() {
   try {
     await api('POST', '/api/login', body);
     $('#login-overlay').classList.add('hidden');
-    await showMain();
+    await loadProviders();
+    if (S.providers.length && !S.activePid) S.activePid = S.providers[0].id;
+    if (S.activePid) await loadConvs();
+    showMain();
+    renderAll();
   } catch (e) { alert(e.message); }
 }
 
@@ -336,15 +396,16 @@ $('#btn-init-submit').addEventListener('click', doInit);
 $('#btn-login-submit').addEventListener('click', doLogin);
 $('#btn-send').addEventListener('click', sendMsg);
 $('#btn-new-chat').addEventListener('click', newConv);
-$('#btn-manage-providers').addEventListener('click', () => openProviderDialog());
 $('#btn-open-settings').addEventListener('click', openSettings);
 $('#btn-settings-save').addEventListener('click', saveSettings);
-$('#btn-settings-cancel').addEventListener('click', () => $('#settings-overlay').classList.add('hidden'));
-$('#btn-provider-save').addEventListener('click', saveProvider);
-$('#btn-provider-cancel').addEventListener('click', () => $('#provider-overlay').classList.add('hidden'));
-$('#btn-provider-delete').addEventListener('click', deleteProvider);
+$('#btn-settings-close').addEventListener('click', () => $('#settings-page').classList.add('hidden'));
 $('#btn-logout').addEventListener('click', doLogout);
 $('#btn-toggle-sidebar').addEventListener('click', () => $('#sidebar').classList.toggle('open'));
+$('#btn-add-provider').addEventListener('click', () => renderProviderForm(null));
+
+$$('.settings-nav-item').forEach(el => {
+  el.addEventListener('click', () => switchSettingsTab(el.dataset.tab));
+});
 
 $('#user-input').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }

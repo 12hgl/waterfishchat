@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>水鱼 Chat</title>
+<link rel="icon" href="https://waterfish.cc.cd/image/icon.ico">
 <link rel="stylesheet" href="style.css">
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 </head>
@@ -12,7 +13,7 @@
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-top">
       <div class="brand">
-        <span class="brand-icon">🐟</span>
+        <img class="brand-icon" src="icon.ico" width="22" height="22" alt="">
         <span class="brand-name">水鱼 Chat</span>
       </div>
       <div class="provider-bar" id="provider-bar"></div>
@@ -23,12 +24,8 @@
       <div class="conv-list" id="conv-list"></div>
     </div>
     <div class="sidebar-bottom">
-      <button class="btn-sidebar" id="btn-manage-providers">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        提供商
-      </button>
       <button class="btn-sidebar" id="btn-open-settings">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         设置
       </button>
       <button class="btn-sidebar btn-logout" id="btn-logout">
@@ -85,37 +82,66 @@
   </div>
 </div>
 
-<div class="overlay hidden" id="settings-overlay">
-  <div class="dialog">
-    <h3>全局设置</h3>
-    <label>Turnstile Site Key</label>
-    <input type="text" id="settings-sitekey">
-    <label>Turnstile Secret Key</label>
-    <input type="password" id="settings-secret">
-    <label>空闲休眠（分钟）</label>
-    <input type="number" id="settings-idle" min="1" max="120">
-    <div class="dialog-actions">
-      <button class="btn-secondary" id="btn-settings-cancel">取消</button>
-      <button class="btn-primary" id="btn-settings-save">保存</button>
+<div class="overlay hidden" id="settings-page">
+  <div class="settings-container">
+    <div class="settings-nav">
+      <div class="settings-nav-item active" data-tab="general">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        通用
+      </div>
+      <div class="settings-nav-item" data-tab="providers">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22 6 12 13 2 6"/></svg>
+        提供商
+      </div>
+      <div class="settings-nav-item" data-tab="about">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        关于
+      </div>
     </div>
-  </div>
-</div>
-
-<div class="overlay hidden" id="provider-overlay">
-  <div class="dialog">
-    <h3 id="provider-dialog-title">添加提供商</h3>
-    <label>名称 <span class="req">*</span></label>
-    <input type="text" id="provider-name" placeholder="如：DeepSeek">
-    <label>API 地址 <span class="req">*</span></label>
-    <input type="text" id="provider-url" placeholder="https://api.deepseek.com/v1">
-    <label>API Key <span class="req" id="provider-key-req">*</span></label>
-    <input type="password" id="provider-key" placeholder="sk-...">
-    <label>模型 <span class="req">*</span></label>
-    <input type="text" id="provider-model" placeholder="deepseek-chat">
-    <div class="dialog-actions">
-      <button class="btn-danger hidden" id="btn-provider-delete">删除</button>
-      <button class="btn-secondary" id="btn-provider-cancel">取消</button>
-      <button class="btn-primary" id="btn-provider-save">保存</button>
+    <div class="settings-body">
+      <div class="settings-panel" id="panel-general">
+        <div class="settings-section">
+          <div class="settings-section-title">安全</div>
+          <label class="settings-label">Turnstile Site Key</label>
+          <input type="text" id="settings-sitekey" placeholder="可选">
+          <label class="settings-label">Turnstile Secret Key</label>
+          <input type="password" id="settings-secret" placeholder="可选">
+        </div>
+        <div class="settings-section">
+          <div class="settings-section-title">系统</div>
+          <label class="settings-label">空闲休眠（分钟）</label>
+          <input type="number" id="settings-idle" min="1" max="120">
+          <label class="settings-row">
+            <span>使用容器网络调用 API</span>
+            <label class="toggle">
+              <input type="checkbox" id="settings-container-net">
+              <span class="toggle-slider"></span>
+            </label>
+          </label>
+        </div>
+        <div class="settings-actions">
+          <button class="btn-secondary" id="btn-settings-close">返回</button>
+          <button class="btn-primary" id="btn-settings-save">保存</button>
+        </div>
+      </div>
+      <div class="settings-panel hidden" id="panel-providers">
+        <div class="settings-section-title">API 提供商</div>
+        <div id="provider-form-area"></div>
+        <div id="provider-list"></div>
+        <button class="btn-add-item" id="btn-add-provider">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          添加提供商
+        </button>
+      </div>
+      <div class="settings-panel hidden" id="panel-about">
+        <div class="settings-about">
+          <img src="icon.ico" width="48" height="48" alt="">
+          <h3>水鱼 Chat</h3>
+          <p>轻量私有 AI 聊天</p>
+          <p class="about-version">Version 1.3</p>
+          <p class="about-link"><a href="https://github.com/12hgl/waterfishchat" target="_blank">github.com/12hgl/waterfishchat</a></p>
+        </div>
+      </div>
     </div>
   </div>
 </div>
